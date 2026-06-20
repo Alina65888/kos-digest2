@@ -165,9 +165,9 @@ def llm_json(
             last_error = e
             log.warning(f"[{label}] попытка {attempt}: {type(e).__name__}: {e}")
 
-        # Экспоненциальный бэкофф
+        # Экспоненциальный бэкофф (начинаем с 6с для 429 rate-limit)
         if attempt < LLM_MAX_RETRIES:
-            sleep_s = 2 ** (attempt - 1)
+            sleep_s = 6 * attempt
             time.sleep(sleep_s)
 
     raise RuntimeError(
