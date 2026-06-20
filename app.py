@@ -509,11 +509,16 @@ main_count = len(draft.get("main_block", []))
 rubric_count = len(draft.get("rubrics", []))
 card_count = sum(len(r.get("cards", [])) for r in draft.get("rubrics", []))
 
-stat_cols = st.columns(4)
-stat_cols[0].metric("Главных новостей", main_count)
-stat_cols[1].metric("Рубрик", rubric_count)
-stat_cols[2].metric("Карточек", card_count)
-stat_cols[3].metric("Фото загружено", len(st.session_state.available_images))
+stats = draft.get("_stats", {})
+input_posts = stats.get("input_posts", "—")
+placed_posts = stats.get("placed_posts", "—")
+
+stat_cols = st.columns(5)
+stat_cols[0].metric("Постов на входе", input_posts)
+stat_cols[1].metric("Размещено", placed_posts)
+stat_cols[2].metric("Главных", main_count)
+stat_cols[3].metric("Рубрик", rubric_count)
+stat_cols[4].metric("Карточек", card_count)
 
 # ── Предупреждения ────────────────────────────────────────────
 if draft.get("warnings"):
@@ -549,6 +554,7 @@ else:
         with main_cols[idx % 2]:
             title_esc = _esc(item["title"])
             img_info = _esc(item.get("image_file") or "нет")
+            link_esc = _esc(item.get("link") or "нет")
             st.markdown(f"""<div class="kos-card kos-card-accent">
                 <div class="kos-card-header">
                     <span class="kos-badge kos-badge-teal">Главное #{idx+1}</span>
@@ -557,6 +563,7 @@ else:
                 <div class="kos-card-meta">
                     <span>Пост #{item["post_id"]}</span>
                     <span>Фото: {img_info}</span>
+                    <span>Ссылка: {"есть" if item.get("link") else "нет"}</span>
                 </div>
             </div>""", unsafe_allow_html=True)
             with st.expander("Редактировать", icon="✏️"):
@@ -566,9 +573,11 @@ else:
                     index=(st.session_state.available_images.index(item["image_file"]) + 1)
                           if item.get("image_file") in st.session_state.available_images else 0,
                     key=f"main_image_{idx}")
+                new_link = st.text_input("Ссылка", value=item.get("link", ""), key=f"main_link_{idx}")
                 if st.button("Сохранить", key=f"save_main_{idx}", use_container_width=True):
                     draft["main_block"][idx]["title"] = new_title
                     draft["main_block"][idx]["image_file"] = new_image
+                    draft["main_block"][idx]["link"] = new_link
                     st.toast("Сохранено", icon="✅")
                     st.rerun()
 

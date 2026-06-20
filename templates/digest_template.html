@@ -35,11 +35,17 @@
                   {% if main_block[i] %}
                     {% if main_block[i].image_file %}
                     <div style="text-align: center; margin-bottom: 10px;">
+                      {% if main_block[i].link %}
+                      <a href="{{ main_block[i].link }}" style="text-decoration: none;">
+                        <img src="{{ assets_url }}/{{ main_block[i].image_file }}" width="286" height="161" style="display: block; margin: 0 auto; border: 0;" alt="">
+                      </a>
+                      {% else %}
                       <img src="{{ assets_url }}/{{ main_block[i].image_file }}" width="286" height="161" style="display: block; margin: 0 auto;" alt="">
+                      {% endif %}
                     </div>
                     {% endif %}
                     <p align="center" style="margin: 0; line-height: 1.3;">
-                      <b><a href="{{ main_block[i].link or '#' }}" style="font-size: 11.5pt; color: #008C95;">{{ main_block[i].title }}</a></b>
+                      <b><a href="{{ main_block[i].link or '#' }}" style="font-size: 11.5pt; color: #008C95; text-decoration: underline;">{{ main_block[i].title }}</a></b>
                     </p>
                   {% endif %}
                 </td>
@@ -47,11 +53,17 @@
                   {% if i + 1 < main_block|length %}
                     {% if main_block[i+1].image_file %}
                     <div style="text-align: center; margin-bottom: 10px;">
+                      {% if main_block[i+1].link %}
+                      <a href="{{ main_block[i+1].link }}" style="text-decoration: none;">
+                        <img src="{{ assets_url }}/{{ main_block[i+1].image_file }}" width="286" height="161" style="display: block; margin: 0 auto; border: 0;" alt="">
+                      </a>
+                      {% else %}
                       <img src="{{ assets_url }}/{{ main_block[i+1].image_file }}" width="286" height="161" style="display: block; margin: 0 auto;" alt="">
+                      {% endif %}
                     </div>
                     {% endif %}
                     <p align="center" style="margin: 0; line-height: 1.3;">
-                      <b><a href="{{ main_block[i+1].link or '#' }}" style="font-size: 11.5pt; color: #008C95;">{{ main_block[i+1].title }}</a></b>
+                      <b><a href="{{ main_block[i+1].link or '#' }}" style="font-size: 11.5pt; color: #008C95; text-decoration: underline;">{{ main_block[i+1].title }}</a></b>
                     </p>
                   {% endif %}
                 </td>
@@ -111,7 +123,7 @@
               {% for card in rubric.cards %}
 
               {# Карточка #}
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 8px;">
                 <tr>
                   {% if card.has_image and card.image_file %}
                   <td width="280" valign="top" style="padding-right: 15px;">
@@ -126,6 +138,15 @@
                   </td>
                 </tr>
               </table>
+
+              {# ── Линия-разделитель между карточками ── #}
+              {% if not loop.last %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 12px;">
+                <tr>
+                  <td style="border-bottom: 1px solid #e0e6e8; font-size: 0; line-height: 0; height: 1px;">&nbsp;</td>
+                </tr>
+              </table>
+              {% endif %}
 
               {# Цитата встаёт ПОСЛЕ карточки с position == rubric.quote_before #}
               {% if main_quote and rubric.quote_before == card.position %}
@@ -163,7 +184,13 @@
                       <tr>
                         {% if main_video.image_file %}
                         <td width="340" valign="top" style="padding-right: 15px;">
+                          {% if main_video.link %}
+                          <a href="{{ main_video.link }}" style="text-decoration: none;">
+                            <img src="{{ assets_url }}/{{ main_video.image_file }}" width="320" height="180" style="display: block; border: 0;" alt="">
+                          </a>
+                          {% else %}
                           <img src="{{ assets_url }}/{{ main_video.image_file }}" width="320" height="180" style="display: block;" alt="">
+                          {% endif %}
                         </td>
                         {% endif %}
                         <td valign="top">

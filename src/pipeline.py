@@ -201,12 +201,50 @@ def rewrite_card(post: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any
         },
         "context": context,
     }
-    return llm_json(
+    result = llm_json(
         system_prompt,
         json.dumps(payload, ensure_ascii=False),
         temperature=REWRITE_TEMPERATURE,
         label="rewrite",
     )
+    if "text" in result and isinstance(result["text"], str):
+        result["text"] = _fix_links(result["text"], post.get("link", ""))
+    return result
+
+
+def _fix_links(text: str, fallback_link: str) -> str:
+    """
+    Чинит теги <a> в тексте карточки:
+      - Если <a> без href — подставляет ссылку из Excel.
+      - Если href пустой или '#' — подставляет ссылку из Excel.
+      - Гарантирует inline-стиль для Outlook.
+    """
+    import re
+    if not fallback_link:
+        fallback_link = "#"
+
+    def replace_a(match):
+        attrs = match.group(1) or ""
+        inner = match.group(2) or ""
+
+        href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', attrs)
+        if href_match:
+            current_href = href_match.group(1).strip()
+            if not current_href or current_href == "#":
+                attrs = re.sub(
+                    r'href\s*=\s*["\'][^"\']*["\']',
+                    f'href="{fallback_link}"',
+                    attrs,
+                )
+        else:
+            attrs = f' href="{fallback_link}"' + attrs
+
+        if "style" not in attrs.lower():
+            attrs += ' style="color:#008C95;text-decoration:underline;"'
+
+        return f"<a{attrs}>{inner}</a>"
+
+    return re.sub(r"<a\b([^>]*)>(.*?)</a>", replace_a, text, flags=re.IGNORECASE | re.DOTALL)
 
 
 # ===========================================================================
@@ -249,19 +287,41 @@ def build_digest_draft(
             "post_id": pid,
             "title": item.get("title") or post.get("topic", ""),
             "image_file": post.get("image_file", ""),
+            "link": post.get("link", ""),
         })
 
     # === ГЛАВНАЯ ЦИФРА ===
     main_figure = None
     fig_id = plan.get("main_figure_post_id")
+    # Фолбэк: если LLM не выбрала — ищем пост с цифрой самостоятельно
+    if (not fig_id or fig_id not in by_id or fig_id in used_ids):
+        candidates = [
+            p for p in classified
+            if p.get("has_number") and p["post_id"] not in used_ids
+        ]
+        # Сортируем по важности (чем выше — тем лучше)
+        candidates.sort(key=lambda p: p.get("importance", 0), reverse=True)
+        if candidates:
+            fig_id = candidates[0]["post_id"]
+            log.info(f"LLM не выбрала главную цифру, фолбэк → пост #{fig_id}")
+        else:
+            # Нет постов с цифрами — берём самый важный неиспользованный пост
+            remaining = [
+                p for p in classified if p["post_id"] not in used_ids
+            ]
+            remaining.sort(key=lambda p: p.get("importance", 0), reverse=True)
+            if remaining:
+                fig_id = remaining[0]["post_id"]
+                log.info(f"Нет постов с цифрами, фолбэк → самый важный пост #{fig_id}")
+
     if fig_id and fig_id in by_id and fig_id not in used_ids:
         used_ids.add(fig_id)
         post = by_id[fig_id]
         try:
             rewritten = rewrite_card(post, {"is_figure": True})
             main_figure = {
-                "value": rewritten.get("value") or post.get("number_value") or "",
-                "description": rewritten.get("description") or post.get("number_desc") or "",
+                "value": rewritten.get("value") or post.get("number_value") or "—",
+                "description": rewritten.get("description") or post.get("number_desc") or post.get("summary_short", ""),
                 "post_id": fig_id,
             }
         except Exception as e:
@@ -279,6 +339,7 @@ def build_digest_draft(
                 "title": rewritten.get("title") or "📹 ГЛАВНОЕ ВИДЕО",
                 "text": rewritten.get("text") or post.get("summary_short", ""),
                 "image_file": post.get("image_file", ""),
+                "link": post.get("link", ""),
                 "post_id": vid_id,
             }
         except Exception as e:
@@ -339,6 +400,42 @@ def build_digest_draft(
                 "pid": pid,
                 "position": c_idx + 1,
                 "rubric_name": rubric_name,
+            })
+
+    # === SAFETY NET: 100% ВКЛЮЧЕНИЕ ===
+    all_post_ids = {p["post_id"] for p in classified}
+    missing_ids = all_post_ids - used_ids
+    if missing_ids:
+        log.warning(f"LLM забыла {len(missing_ids)} постов, докладываю принудительно: {sorted(missing_ids)}")
+        warnings.append(
+            f"ℹ {len(missing_ids)} пост(ов) LLM не разместила — приложение положило их "
+            f"в рубрики по rubric_candidate."
+        )
+        rubrics_by_name = {r["name"]: r for r in rubrics_skeleton}
+        for pid in sorted(missing_ids):
+            post = by_id[pid]
+            target_rubric_name = post.get("rubric_candidate") or "СОБЫТИЯ"
+            if target_rubric_name not in rubrics_by_name:
+                rubric_obj = {
+                    "name": target_rubric_name,
+                    "icon": RUBRIC_ICONS.get(target_rubric_name, "rubric_events.png"),
+                    "cards": [],
+                    "quote_before": None,
+                    "post_ids": [],
+                }
+                rubrics_skeleton.append(rubric_obj)
+                rubrics_by_name[target_rubric_name] = rubric_obj
+            rubric = rubrics_by_name[target_rubric_name]
+            rubric["post_ids"].append(pid)
+            rubric["cards"].append(None)
+            used_ids.add(pid)
+            new_position = len(rubric["cards"])
+            rewrite_tasks.append({
+                "rubric_idx": rubrics_skeleton.index(rubric),
+                "card_idx": new_position - 1,
+                "pid": pid,
+                "position": new_position,
+                "rubric_name": target_rubric_name,
             })
 
     # Параллельная перепись карточек
@@ -427,6 +524,32 @@ def build_digest_draft(
             "Возможно, в выпуске мало постов с importance>=8."
         )
 
+    # === УДАЛИМ ПУСТЫЕ РУБРИКИ ===
+    rubrics_skeleton = [r for r in rubrics_skeleton if r.get("cards")]
+
+    # === ФИНАЛЬНАЯ ПРОВЕРКА 100% ===
+    final_used = set()
+    for it in main_block:
+        final_used.add(it["post_id"])
+    if main_figure and main_figure.get("post_id"):
+        final_used.add(main_figure["post_id"])
+    if main_video and main_video.get("post_id"):
+        final_used.add(main_video["post_id"])
+    if main_quote and main_quote.get("post_id"):
+        final_used.add(main_quote["post_id"])
+    for r in rubrics_skeleton:
+        for c in r.get("cards", []) or []:
+            if c and c.get("post_id"):
+                final_used.add(c["post_id"])
+
+    really_missing = all_post_ids - final_used
+    if really_missing:
+        warnings.append(
+            f"❌ {len(really_missing)} пост(ов) не попали в дайджест: {sorted(really_missing)}"
+        )
+    else:
+        log.info(f"✅ 100% включение: все {len(all_post_ids)} постов размещены")
+
     return {
         "subject_topics": plan.get("subject_topics", []),
         "main_block": main_block,
@@ -436,10 +559,13 @@ def build_digest_draft(
         "main_quote_rubric": main_quote_rubric,
         "rubrics": rubrics_skeleton,
         "video_after_rubric_idx": video_after_rubric_idx,
-        "skipped": plan.get("skipped", []),
         "warnings": warnings,
-        "_classified": classified,  # для возможной перегенерации одной карточки
+        "_classified": classified,
         "_plan": plan,
+        "_stats": {
+            "input_posts": len(all_post_ids),
+            "placed_posts": len(final_used),
+        },
     }
 
 
