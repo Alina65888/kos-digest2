@@ -323,6 +323,7 @@ def build_digest_draft(
                 "value": rewritten.get("value") or post.get("number_value") or "—",
                 "description": rewritten.get("description") or post.get("number_desc") or post.get("summary_short", ""),
                 "post_id": fig_id,
+                "link": post.get("link", ""),
             }
         except Exception as e:
             warnings.append(f"Главная цифра: {e}")

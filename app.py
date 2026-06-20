@@ -56,6 +56,37 @@ def _save_uploaded_images(uploaded_files) -> Path:
     return tmp_dir
 
 
+def _show_photo_preview(image_name: str):
+    """Показывает миниатюру фото, если файл существует в загруженных."""
+    if not image_name or not st.session_state.images_dir:
+        return
+    img_path = Path(st.session_state.images_dir) / image_name
+    if img_path.exists():
+        st.image(str(img_path), width=200, caption=image_name)
+
+
+def _photo_selector(label: str, current_value: str, key: str, allow_upload: bool = True):
+    """Выпадающий список фото с превью и ручной загрузкой."""
+    options = [""] + st.session_state.available_images
+    current_idx = (options.index(current_value) if current_value in options else 0)
+    selected = st.selectbox(label, options=options, index=current_idx, key=key)
+    if selected:
+        _show_photo_preview(selected)
+    if allow_upload:
+        uploaded = st.file_uploader(
+            "Или загрузите новое фото", type=["jpg", "jpeg", "png", "webp"],
+            key=f"{key}_upload")
+        if uploaded:
+            img_dir = Path(st.session_state.images_dir) if st.session_state.images_dir else _get_images_tmp_dir()
+            (img_dir / uploaded.name).write_bytes(uploaded.getbuffer())
+            if uploaded.name not in st.session_state.available_images:
+                st.session_state.available_images.append(uploaded.name)
+                st.session_state.available_images.sort()
+            selected = uploaded.name
+            st.image(uploaded, width=200, caption=uploaded.name)
+    return selected
+
+
 def _progress_callback(widget):
     def cb(current, total, text):
         try:
@@ -568,11 +599,7 @@ else:
             </div>""", unsafe_allow_html=True)
             with st.expander("Редактировать", icon="✏️"):
                 new_title = st.text_area("Заголовок", value=item["title"], key=f"main_title_{idx}")
-                new_image = st.selectbox(
-                    "Фото", options=[""] + st.session_state.available_images,
-                    index=(st.session_state.available_images.index(item["image_file"]) + 1)
-                          if item.get("image_file") in st.session_state.available_images else 0,
-                    key=f"main_image_{idx}")
+                new_image = _photo_selector("Фото", item.get("image_file", ""), key=f"main_image_{idx}")
                 new_link = st.text_input("Ссылка", value=item.get("link", ""), key=f"main_link_{idx}")
                 if st.button("Сохранить", key=f"save_main_{idx}", use_container_width=True):
                     draft["main_block"][idx]["title"] = new_title
@@ -600,9 +627,11 @@ if fig:
     with st.expander("Редактировать", icon="✏️"):
         new_val = st.text_input("Значение", value=fig["value"], key="fig_val")
         new_desc = st.text_area("Описание", value=fig["description"], key="fig_desc")
+        new_fig_link = st.text_input("Ссылка", value=fig.get("link", ""), key="fig_link")
         if st.button("Сохранить", key="save_fig", use_container_width=True):
             draft["main_figure"]["value"] = new_val
             draft["main_figure"]["description"] = new_desc
+            draft["main_figure"]["link"] = new_fig_link
             st.toast("Сохранено", icon="✅")
             st.rerun()
 else:
@@ -637,11 +666,7 @@ if mv:
     with st.expander("Редактировать", icon="✏️"):
         new_title = st.text_input("Заголовок", value=mv["title"], key="video_title")
         new_text = st.text_area("Описание", value=mv["text"], key="video_text")
-        new_image = st.selectbox(
-            "Обложка", options=[""] + st.session_state.available_images,
-            index=(st.session_state.available_images.index(mv["image_file"]) + 1)
-                  if mv.get("image_file") in st.session_state.available_images else 0,
-            key="video_image")
+        new_image = _photo_selector("Обложка", mv.get("image_file", ""), key="video_image")
         if st.button("Сохранить", key="save_video", use_container_width=True):
             draft["main_video"]["title"] = new_title
             draft["main_video"]["text"] = new_text
@@ -678,11 +703,7 @@ if mq and mq.get("text"):
         new_text = st.text_area("Текст цитаты", value=mq["text"], key="q_text")
         new_name = st.text_input("Автор", value=mq.get("author_name", ""), key="q_name")
         new_role = st.text_input("Должность", value=mq.get("author_role", ""), key="q_role")
-        new_photo = st.selectbox(
-            "Фото автора", options=[""] + st.session_state.available_images,
-            index=(st.session_state.available_images.index(mq.get("photo_file", "")) + 1)
-                  if mq.get("photo_file") in st.session_state.available_images else 0,
-            key="q_photo")
+        new_photo = _photo_selector("Фото автора", mq.get("photo_file", ""), key="q_photo")
         rubric_options = [r["name"] for r in draft.get("rubrics", [])]
         if rubric_options:
             current_idx = (rubric_options.index(draft.get("main_quote_rubric"))
@@ -762,12 +783,11 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                                        key=f"c_t_{r_idx}_{c_idx}")
             new_text = st.text_area("Текст", value=card["text"],
                                      key=f"c_x_{r_idx}_{c_idx}", height=120)
+            new_card_link = st.text_input("Ссылка", value=card.get("link", ""),
+                                          key=f"c_l_{r_idx}_{c_idx}")
             new_has = st.checkbox("С фото", value=has_img, key=f"c_h_{r_idx}_{c_idx}")
-            new_img = st.selectbox(
-                "Фото", options=[""] + st.session_state.available_images,
-                index=(st.session_state.available_images.index(card.get("image_file", "")) + 1)
-                      if card.get("image_file") in st.session_state.available_images else 0,
-                key=f"c_i_{r_idx}_{c_idx}")
+            new_img = _photo_selector("Фото", card.get("image_file", ""),
+                                       key=f"c_i_{r_idx}_{c_idx}")
 
             col_a, col_b = st.columns(2)
             with col_a:
@@ -776,6 +796,7 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     card["text"] = new_text
                     card["has_image"] = new_has
                     card["image_file"] = new_img if new_has else ""
+                    card["link"] = new_card_link
                     st.toast("Сохранено", icon="✅")
                     st.rerun()
             with col_b:
