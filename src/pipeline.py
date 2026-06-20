@@ -482,6 +482,7 @@ def build_digest_draft(
                     "image_file": post.get("image_file", "") if has_image else "",
                     "has_image": has_image,
                     "position": pos,
+                    "link": post.get("link", ""),
                 }
 
     # === ПЕРЕСОРТИРОВКА РУБРИК В КАНОНИЧЕСКОМ ПОРЯДКЕ ===
