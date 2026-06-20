@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>{{ subject }}</title>
+<style>
+    p, span, td, div { font-family: "Arial", sans-serif; }
+    a { color: #008C95; text-decoration: none; }
+</style>
+</head>
+<body bgcolor="#F2F2F2" style="background-color: #F2F2F2; margin: 0; padding: 0;">
+
+<table width="100%" bgcolor="#F2F2F2" border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td align="center" style="padding: 20px 0;">
+
+      <table width="755" bgcolor="#ffffff" border="0" cellspacing="0" cellpadding="0">
+
+        {# ======== ШАПКА ======== #}
+        <tr>
+          <td align="center" style="padding-bottom: 20px;">
+            <img src="{{ assets_url }}/banner.png" alt="Главные новости КОС" width="751" style="display: block; max-width: 100%;">
+          </td>
+        </tr>
+
+        {# ======== БЛОК «ГЛАВНОЕ» ======== #}
+        {% if main_block and main_block|length > 0 %}
+        <tr>
+          <td style="padding: 0 20px 10px 20px;">
+            <p style="margin: 0 0 15px 0;"><b><span style="font-size: 18.5pt; color: #00313C;">/ ГЛАВНОЕ /</span></b></p>
+            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              {% for i in range(0, main_block|length, 2) %}
+              <tr>
+                <td width="50%" valign="top" style="padding: 0 10px 20px 0;">
+                  {% if main_block[i] %}
+                    {% if main_block[i].image_file %}
+                    <div style="text-align: center; margin-bottom: 10px;">
+                      <img src="{{ assets_url }}/{{ main_block[i].image_file }}" width="286" height="161" style="display: block; margin: 0 auto;" alt="">
+                    </div>
+                    {% endif %}
+                    <p align="center" style="margin: 0; line-height: 1.3;">
+                      <b><a href="{{ main_block[i].link or '#' }}" style="font-size: 11.5pt; color: #008C95;">{{ main_block[i].title }}</a></b>
+                    </p>
+                  {% endif %}
+                </td>
+                <td width="50%" valign="top" style="padding: 0 0 20px 10px;">
+                  {% if i + 1 < main_block|length %}
+                    {% if main_block[i+1].image_file %}
+                    <div style="text-align: center; margin-bottom: 10px;">
+                      <img src="{{ assets_url }}/{{ main_block[i+1].image_file }}" width="286" height="161" style="display: block; margin: 0 auto;" alt="">
+                    </div>
+                    {% endif %}
+                    <p align="center" style="margin: 0; line-height: 1.3;">
+                      <b><a href="{{ main_block[i+1].link or '#' }}" style="font-size: 11.5pt; color: #008C95;">{{ main_block[i+1].title }}</a></b>
+                    </p>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+
+        {# ======== ГЛАВНАЯ ЦИФРА ======== #}
+        {% if main_figure %}
+        <tr>
+          <td style="padding: 0 20px 30px 20px;">
+            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td width="242" bgcolor="#77E2C3" align="right" valign="middle" style="padding: 15px 10px;">
+                  <span style="font-size: 20pt; font-family: Arial, sans-serif; color: #00313C; font-weight: bold; line-height: 1;">ГЛАВНАЯ<br>ЦИФРА</span>
+                </td>
+                <td width="16" bgcolor="#77E2C3"></td>
+                <td width="196" bgcolor="#008C95" align="center" valign="middle" style="padding: 15px 10px;">
+                  <span style="font-size: 36pt; font-family: 'Arial Black', Arial, sans-serif; color: #ffffff; font-weight: bold; line-height: 1;">{{ main_figure.value }}</span>
+                </td>
+                <td width="16" bgcolor="#77E2C3"></td>
+                <td width="285" bgcolor="#77E2C3" align="left" valign="middle" style="padding: 15px 10px;">
+                  <span style="font-size: 11.5pt; font-family: Arial, sans-serif; color: #000000; line-height: 1.3;">{{ main_figure.description }}</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+
+        {# ======== РУБРИКИ ======== #}
+        {% for rubric in rubrics %}
+          {% if rubric.cards and rubric.cards|length > 0 %}
+
+          {# Заголовок рубрики с иконкой #}
+          <tr>
+            <td style="padding: 0 20px;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-bottom: 1.5pt solid #008C95; margin-bottom: 15px;">
+                <tr>
+                  <td width="65" valign="middle" style="padding-bottom: 5px;">
+                    <img src="{{ assets_url }}/{{ rubric.icon }}" width="57" height="55" style="display: block;" alt="">
+                  </td>
+                  <td valign="middle" style="padding-bottom: 5px;">
+                    <span style="font-size: 18.5pt; font-family: Arial, sans-serif; color: #00313C; font-weight: bold;">/ {{ rubric.name }} /</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {# Карточки рубрики #}
+          <tr>
+            <td style="padding: 0 20px 20px 20px;">
+              {% for card in rubric.cards %}
+
+              {# Карточка #}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px;">
+                <tr>
+                  {% if card.has_image and card.image_file %}
+                  <td width="280" valign="top" style="padding-right: 15px;">
+                    <img src="{{ assets_url }}/{{ card.image_file }}" width="265" height="176" style="display: block;" alt="">
+                  </td>
+                  {% endif %}
+                  <td valign="top">
+                    <p style="margin: 0; font-family: Arial, sans-serif; line-height: 1.4;">
+                      <span style="font-size: 11.5pt; color: #008C95; font-weight: bold; text-transform: uppercase;">{{ card.title }}</span><br>
+                      <span style="font-size: 11.5pt; color: #000000;">{{ card.text | safe }}</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              {# Цитата встаёт ПОСЛЕ карточки с position == rubric.quote_before #}
+              {% if main_quote and rubric.quote_before == card.position %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px; background-color: #f0fafa; border-left: 5px solid #008C95;">
+                <tr>
+                  {% if main_quote.photo_file %}
+                  <td width="100" valign="middle" style="padding: 14px 12px 14px 16px;">
+                    <img src="{{ assets_url }}/{{ main_quote.photo_file }}" width="80" height="80" style="border-radius: 40px; display: block;" alt="">
+                  </td>
+                  {% endif %}
+                  <td valign="middle" style="padding: 14px 18px 14px 6px;">
+                    <p style="margin: 0 0 8px 0; font-family: Arial, sans-serif; font-size: 12pt; font-style: italic; color: #00313C; line-height: 1.5;">
+                      <span style="font-size: 24pt; color: #008C95; font-family: Georgia, serif; line-height: 0; vertical-align: -8px; margin-right: 4px;">&ldquo;</span>{{ main_quote.text }}
+                    </p>
+                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 10pt; font-weight: bold; color: #008C95;">
+                      {{ main_quote.author_name }}<br>
+                      <span style="font-weight: normal; color: #5a8588;">{{ main_quote.author_role }}</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              {% endfor %}
+
+              {# Главное видео — после последней карточки нужной рубрики #}
+              {% if main_video and video_after_rubric_idx == loop.index %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px; border: 6px solid #77E2C3;">
+                <tr>
+                  <td style="padding: 15px;">
+                    <p style="margin: 0 0 15px 0; font-family: 'Segoe UI Emoji', Arial, sans-serif; font-size: 14pt; color: #000000; font-weight: bold;">
+                      &#128249; ГЛАВНОЕ ВИДЕО
+                    </p>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        {% if main_video.image_file %}
+                        <td width="340" valign="top" style="padding-right: 15px;">
+                          <img src="{{ assets_url }}/{{ main_video.image_file }}" width="320" height="180" style="display: block;" alt="">
+                        </td>
+                        {% endif %}
+                        <td valign="top">
+                          <p style="margin: 0; font-family: Arial, sans-serif; line-height: 1.4;">
+                            <span style="font-size: 11.5pt; color: #008C95; font-weight: bold; text-transform: uppercase;">{{ main_video.title }}</span><br>
+                            <span style="font-size: 11.5pt; color: #000000;">{{ main_video.text }}</span>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+
+        {# ======== ПОДВАЛ ======== #}
+        <tr>
+          <td style="padding: 20px; background-color: #FAFAFA; text-align: center;">
+            <p style="margin: 0 0 5px 0; font-family: Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.5;">
+              Делитесь своими новостями и идеями, как сделать дайджест ещё лучше! Пишите нам:
+            </p>
+            <p style="margin: 0; font-family: Arial, sans-serif; font-size: 11pt; font-weight: bold; color: #000000; line-height: 1.5;">
+              Корпоративные коммуникации КОС<br>
+              <a href="mailto:CorpCom-kzn@sibur.ru" style="color: #00999C; font-weight: normal;">CorpCom-kzn@sibur.ru</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,18 @@
+[server]
+headless = true
+maxUploadSize = 200
+enableXsrfProtection = true
+maxMessageSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#008C95"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#f7f9fa"
+textColor = "#1a2b33"
+font = "sans serif"
+
+[client]
+showSidebarNavigation = false
