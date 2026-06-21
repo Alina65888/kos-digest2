@@ -41,22 +41,30 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
             "Excel-файл пустой. Заполните строки с постами и сохраните файл."
         )
 
-    # 2. Все ли обязательные колонки на месте?
+    # 2. Маппинг альтернативных названий колонок
     df.columns = [str(c).strip().lower() for c in df.columns]
+    COLUMN_ALIASES = {
+        "дата публикации поста": "date",
+        "ссылка на пост": "link",
+        "текст поста": "text",
+        "текст оригинального поста": "text",
+        "имя файла фото": "image_file",
+        "автор поста": "author",
+        "заголовок поста": "title",
+    }
+    df.columns = [COLUMN_ALIASES.get(c, c) for c in df.columns]
+
+    # 3. Все ли обязательные колонки на месте?
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ExcelValidationError(
             f"В Excel не хватает обязательных колонок: {', '.join(missing)}.\n"
-            f"Должны быть: {', '.join(ALL_KNOWN_COLUMNS)}"
+            f"Должны быть: {', '.join(ALL_KNOWN_COLUMNS)}\n\n"
+            f"Также принимаются: Дата публикации поста, Ссылка на пост, Текст поста"
         )
 
-    # 3. Предупредим о лишних колонках (но не падаем)
+    # 4. Предупредим о лишних колонках (но не падаем)
     warnings = []
-    extra = [c for c in df.columns if c not in ALL_KNOWN_COLUMNS]
-    if extra:
-        warnings.append(
-            f"Лишние колонки игнорируются: {', '.join(extra)}"
-        )
 
     # 4. Добавим недостающие optional-колонки как пустые
     for col in ALL_KNOWN_COLUMNS:

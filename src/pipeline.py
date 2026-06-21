@@ -408,10 +408,6 @@ def build_digest_draft(
     missing_ids = all_post_ids - used_ids
     if missing_ids:
         log.warning(f"LLM забыла {len(missing_ids)} постов, докладываю принудительно: {sorted(missing_ids)}")
-        warnings.append(
-            f"ℹ {len(missing_ids)} пост(ов) LLM не разместила — приложение положило их "
-            f"в рубрики по rubric_candidate."
-        )
         rubrics_by_name = {r["name"]: r for r in rubrics_skeleton}
         for pid in sorted(missing_ids):
             post = by_id[pid]
@@ -486,6 +482,22 @@ def build_digest_draft(
                     "link": post.get("link", ""),
                 }
 
+    # === ОГРАНИЧЕНИЕ: МАКСИМУМ 5 КАРТОЧЕК НА РУБРИКУ ===
+    for r in rubrics_skeleton:
+        if r.get("cards") and len(r["cards"]) > 5:
+            r["cards"] = r["cards"][:5]
+
+    # === ВСЕ 7 РУБРИК ОБЯЗАТЕЛЬНЫ ===
+    existing_names = {r["name"] for r in rubrics_skeleton}
+    for rubric_name in CANONICAL_RUBRIC_ORDER:
+        if rubric_name not in existing_names:
+            rubrics_skeleton.append({
+                "name": rubric_name,
+                "icon": RUBRIC_ICONS.get(rubric_name, "rubric_events.png"),
+                "cards": [],
+                "quote_before": None,
+            })
+
     # === ПЕРЕСОРТИРОВКА РУБРИК В КАНОНИЧЕСКОМ ПОРЯДКЕ ===
     rubrics_skeleton.sort(key=lambda r: _canonical_index(r["name"]))
 
@@ -525,9 +537,6 @@ def build_digest_draft(
             f"⚠ В блоке ГЛАВНОЕ только {len(main_block)} новостей из 4. "
             "Возможно, в выпуске мало постов с importance>=8."
         )
-
-    # === УДАЛИМ ПУСТЫЕ РУБРИКИ ===
-    rubrics_skeleton = [r for r in rubrics_skeleton if r.get("cards")]
 
     # === ФИНАЛЬНАЯ ПРОВЕРКА 100% ===
     final_used = set()
