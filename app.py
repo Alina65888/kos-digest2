@@ -811,6 +811,82 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     except Exception as e:
                         st.error(f"Ошибка перегенерации: {e}")
 
+            # --- Перемещение карточки ---
+            st.markdown("---")
+            move_cols = st.columns([1, 1, 2])
+            with move_cols[0]:
+                if c_idx > 0 and st.button("↑", key=f"up_{r_idx}_{c_idx}",
+                                            use_container_width=True, help="Переместить выше"):
+                    cards = rubric["cards"]
+                    cards[c_idx], cards[c_idx - 1] = cards[c_idx - 1], cards[c_idx]
+                    for i, c in enumerate(cards):
+                        c["position"] = i + 1
+                    st.rerun()
+            with move_cols[1]:
+                if c_idx < len(rubric["cards"]) - 1 and st.button("↓", key=f"dn_{r_idx}_{c_idx}",
+                                                                    use_container_width=True, help="Переместить ниже"):
+                    cards = rubric["cards"]
+                    cards[c_idx], cards[c_idx + 1] = cards[c_idx + 1], cards[c_idx]
+                    for i, c in enumerate(cards):
+                        c["position"] = i + 1
+                    st.rerun()
+            with move_cols[2]:
+                all_rubric_names = [r["name"] for r in draft.get("rubrics", [])]
+                target = st.selectbox(
+                    "Перенести в рубрику",
+                    options=all_rubric_names,
+                    index=all_rubric_names.index(rubric["name"]),
+                    key=f"mv_{r_idx}_{c_idx}")
+                if target != rubric["name"]:
+                    if st.button("Перенести", key=f"mvb_{r_idx}_{c_idx}", use_container_width=True):
+                        moved_card = rubric["cards"].pop(c_idx)
+                        for i, c in enumerate(rubric["cards"]):
+                            c["position"] = i + 1
+                        for r in draft["rubrics"]:
+                            if r["name"] == target:
+                                moved_card["position"] = len(r.get("cards") or []) + 1
+                                if r.get("cards") is None:
+                                    r["cards"] = []
+                                r["cards"].append(moved_card)
+                                break
+                        st.toast(f"Перенесено в {target}", icon="↗️")
+                        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════
+#  ПРЕДПРОСМОТР
+# ══════════════════════════════════════════════════════════════
+
+st.markdown("---")
+
+if st.button("Показать предпросмотр дайджеста", use_container_width=True, icon="👁"):
+    try:
+        from src.templater import build_html as _build_preview
+        from jinja2 import Environment, FileSystemLoader
+        from src.config import TEMPLATES_DIR
+
+        draft_preview = copy.deepcopy(draft)
+        topics = draft_preview.get("subject_topics") or []
+        subject = (", ".join(topics) + ". Главные новости КОС") if topics else "Главные новости КОС"
+
+        env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=False)
+        template = env.get_template("digest_template.html")
+
+        preview_html = template.render(
+            subject=subject,
+            assets_url="",
+            main_block=draft_preview.get("main_block", []),
+            main_figure=draft_preview.get("main_figure"),
+            main_video=draft_preview.get("main_video"),
+            main_quote=draft_preview.get("main_quote"),
+            rubrics=[r for r in draft_preview.get("rubrics", []) if r.get("cards")],
+            video_after_rubric_idx=draft_preview.get("video_after_rubric_idx", 0),
+        )
+
+        import streamlit.components.v1 as components
+        components.html(preview_html, height=2000, scrolling=True)
+    except Exception as e:
+        st.error(f"Ошибка предпросмотра: {e}")
 
 # ══════════════════════════════════════════════════════════════
 #  ЭКСПОРТ
