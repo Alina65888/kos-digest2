@@ -748,6 +748,12 @@ else:
 #  РУБРИКИ
 # ══════════════════════════════════════════════════════════════
 
+try:
+    from streamlit_sortables import sort_items as _sort_items
+    _has_sortables = True
+except ImportError:
+    _has_sortables = False
+
 for r_idx, rubric in enumerate(draft.get("rubrics", [])):
     st.markdown(f'<div class="rubric-section"><div class="rubric-section-title">/ {_esc(rubric["name"])} /</div></div>',
                 unsafe_allow_html=True)
@@ -757,6 +763,20 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
             <div class="empty-state-desc">Нет карточек в этой рубрике</div>
         </div>""", unsafe_allow_html=True)
         continue
+
+    # --- Drag-and-drop сортировка ---
+    if _has_sortables and len(rubric["cards"]) > 1:
+        card_labels = [f"#{c['position']} {c['title'][:50]}" for c in rubric["cards"]]
+        with st.expander("Изменить порядок (перетащите мышкой)", expanded=False):
+            sorted_labels = _sort_items(card_labels, key=f"sort_{r_idx}")
+            if sorted_labels != card_labels:
+                label_to_card = {f"#{c['position']} {c['title'][:50]}": c for c in rubric["cards"]}
+                new_cards = [label_to_card[lbl] for lbl in sorted_labels if lbl in label_to_card]
+                for i, c in enumerate(new_cards):
+                    c["position"] = i + 1
+                rubric["cards"] = new_cards
+                st.toast("Порядок обновлён", icon="↕️")
+                st.rerun()
 
     for c_idx, card in enumerate(rubric["cards"]):
         has_img = card.get("has_image", False)
@@ -861,30 +881,36 @@ st.markdown("---")
 
 if st.button("Показать предпросмотр дайджеста", use_container_width=True, icon="👁"):
     try:
-        from src.templater import build_html as _build_preview
-        from jinja2 import Environment, FileSystemLoader
-        from src.config import TEMPLATES_DIR
+        import base64
+        import re as _re
+        import streamlit.components.v1 as components
 
         draft_preview = copy.deepcopy(draft)
-        topics = draft_preview.get("subject_topics") or []
-        subject = (", ".join(topics) + ". Главные новости КОС") if topics else "Главные новости КОС"
+        output_tmp = Path(tempfile.mkdtemp(prefix="kos_preview_"))
+        images_dir = (Path(st.session_state.images_dir)
+                      if st.session_state.images_dir else output_tmp)
 
-        env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=False)
-        template = env.get_template("digest_template.html")
+        with st.spinner("Собираю предпросмотр с фотографиями..."):
+            html_path = build_html(
+                draft=draft_preview,
+                images_dir=images_dir,
+                output_dir=output_tmp,
+                digest_date=digest_date.strftime("%Y-%m-%d"),
+            )
+            preview_html = html_path.read_text(encoding="utf-8")
 
-        preview_html = template.render(
-            subject=subject,
-            assets_url="",
-            main_block=draft_preview.get("main_block", []),
-            main_figure=draft_preview.get("main_figure"),
-            main_video=draft_preview.get("main_video"),
-            main_quote=draft_preview.get("main_quote"),
-            rubrics=[r for r in draft_preview.get("rubrics", []) if r.get("cards")],
-            video_after_rubric_idx=draft_preview.get("video_after_rubric_idx", 0),
-        )
+            files_dir = output_tmp / html_path.name.replace(".htm", ".files")
+            if files_dir.exists():
+                for img_file in files_dir.iterdir():
+                    if img_file.is_file() and img_file.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif"}:
+                        mime = "image/png" if img_file.suffix.lower() == ".png" else "image/jpeg"
+                        b64 = base64.b64encode(img_file.read_bytes()).decode()
+                        data_uri = f"data:{mime};base64,{b64}"
+                        fname = img_file.name
+                        preview_html = preview_html.replace(
+                            f"{files_dir.name}/{fname}", data_uri)
 
-        import streamlit.components.v1 as components
-        components.html(preview_html, height=2000, scrolling=True)
+        components.html(preview_html, height=2500, scrolling=True)
     except Exception as e:
         st.error(f"Ошибка предпросмотра: {e}")
 
