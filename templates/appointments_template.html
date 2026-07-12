@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>{{ subject }}</title>
+<style>
+    p, span, td, div { font-family: "Arial", sans-serif; }
+    a { color: #008C95; text-decoration: none; }
+</style>
+</head>
+<body bgcolor="#F2F2F2" style="background-color: #F2F2F2; margin: 0; padding: 0;">
+
+<table width="100%" bgcolor="#F2F2F2" border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td align="center" style="padding: 20px 0;">
+
+      <table width="755" bgcolor="#ffffff" border="0" cellspacing="0" cellpadding="0">
+
+        {# ======== ШАПКА (текстовая, без баннера-картинки) ======== #}
+        <tr>
+          <td bgcolor="#00313C" align="center" style="padding: 26px 20px;">
+            <p style="margin: 0; font-size: 20pt; font-weight: bold; color: #ffffff;">Кадровые изменения и назначения</p>
+            {% if period_label %}
+            <p style="margin: 6px 0 0 0; font-size: 12.5pt; color: #77E2C3;">{{ period_label }}</p>
+            {% endif %}
+          </td>
+        </tr>
+
+        {# ======== ВСТУПЛЕНИЕ ======== #}
+        <tr>
+          <td style="padding: 20px 20px 6px 20px;">
+            <p style="margin: 0 0 10px 0; font-size: 12.5pt; color: #000000;">Уважаемые коллеги!</p>
+            <p style="margin: 0; font-size: 12.5pt; color: #000000; line-height: 1.5;">
+              Сообщаем о кадровых изменениях и назначениях на «Казаньоргсинтезе»{% if period_label %}, произошедших за период <span style="color:#008C95;">{{ period_label }}</span>{% endif %}.
+            </p>
+          </td>
+        </tr>
+
+        {# ======== РАЗДЕЛЫ ======== #}
+        {% for section in sections %}
+          {% if section.people and section.people|length > 0 %}
+
+          {# Заголовок раздела #}
+          <tr>
+            <td style="padding: 20px 20px 0 20px;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-bottom: 1.5pt solid #008C95; margin-bottom: 15px;">
+                <tr>
+                  <td style="padding-bottom: 6px;">
+                    <span style="font-size: 16pt; font-family: Arial, sans-serif; color: #00313C; font-weight: bold;">/ {{ section.title }} /</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {% if section.key == "departed" %}
+          {# ======== СПИСОЧНЫЙ РАЗДЕЛ: КТО УШЁЛ ======== #}
+          <tr>
+            <td style="padding: 0 20px 20px 20px;">
+              {% for person in section.people %}
+              <p style="margin: 0 0 2px 0; font-size: 13pt; font-weight: bold; color: #008C95;">{{ person.name }}</p>
+              {% if person.new_position %}
+              <p style="margin: 0 0 8px 0; font-size: 11pt; font-style: italic; color: #5a8588;">{{ person.new_position }}</p>
+              {% endif %}
+              {% if person.message %}
+              <p style="margin: 0 0 14px 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">{{ person.message }}</p>
+              {% endif %}
+              {% if not loop.last %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 12px;">
+                <tr><td style="border-bottom: 1pt solid #e4e8eb; font-size: 0; line-height: 0; height: 1px;">&nbsp;</td></tr>
+              </table>
+              {% endif %}
+              {% endfor %}
+              {% if section.closing_note %}
+              <p style="margin: 16px 0 0 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">{{ section.closing_note }}</p>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          {# ======== КАРТОЧКИ С ФОТО: КЛЮЧЕВЫЕ / НОВЫЕ ЛИЦА / НОВЫЙ ВЫЗОВ ======== #}
+          <tr>
+            <td style="padding: 0 20px 20px 20px;">
+              {% for person in section.people %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 18px;">
+                <tr>
+                  {% if person.image_file %}
+                  <td width="215" valign="top" style="padding-right: 15px;">
+                    <img src="{{ assets_url }}/{{ person.image_file }}" width="200" height="200" style="display: block; border-radius: 6px;" alt="">
+                  </td>
+                  {% endif %}
+                  <td valign="top">
+                    <p style="margin: 0 0 4px 0; font-size: 15pt; font-weight: bold; color: #008C95;">{{ person.name }}</p>
+                    {% if person.new_position %}
+                    <p style="margin: 0 0 2px 0; font-size: 12pt; font-style: italic; color: #008C95;">{{ person.new_position }}</p>
+                    {% endif %}
+                    {% if person.previous_position %}
+                    <p style="margin: 0 0 10px 0; font-size: 10.5pt; font-style: italic; color: #5a8588;">(предыдущая должность: {{ person.previous_position }})</p>
+                    {% endif %}
+                    {% if section.key == "new_challenge" %}
+                      {% if person.message %}
+                      <p style="margin: 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">{{ person.message | safe }}</p>
+                      {% endif %}
+                    {% else %}
+                      {% if person.education %}
+                      <p style="margin: 0 0 8px 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">{{ person.education }}</p>
+                      {% endif %}
+                      {% if person.career %}
+                      <p style="margin: 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">{{ person.career }}</p>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+              {% if not loop.last %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 18px;">
+                <tr><td style="border-bottom: 1pt solid #e4e8eb; font-size: 0; line-height: 0; height: 1px;">&nbsp;</td></tr>
+              </table>
+              {% endif %}
+              {% endfor %}
+            </td>
+          </tr>
+          {% endif %}
+
+          {% endif %}
+        {% endfor %}
+
+        {# ======== ССЫЛКА НА ОРГСТРУКТУРУ ======== #}
+        {% if org_chart_link %}
+        <tr>
+          <td style="padding: 0 20px 20px 20px;">
+            <p style="margin: 0 0 6px 0; font-size: 12.5pt; font-weight: bold; color: #000000;">Как теперь выглядит организационная структура КОСа?</p>
+            <p style="margin: 0; font-size: 11.5pt; color: #000000; line-height: 1.5;">
+              Кто и за какие направления отвечает теперь, можно подробно изучить на схеме. Скачайте справочник
+              <a href="{{ org_chart_link }}" style="color: #ffffff; background-color: #008C95; padding: 3px 10px; border-radius: 4px; text-decoration: none;">по ссылке</a>, чтобы не потерять.
+            </p>
+          </td>
+        </tr>
+        {% endif %}
+
+        {# ======== ПОДВАЛ ======== #}
+        <tr>
+          <td style="padding: 20px; background-color: #FAFAFA; text-align: center;">
+            <p style="margin: 0 0 5px 0; font-family: Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.5;">
+              Если у вас появилась новость, которой вы хотите поделиться с нами — напишите об этом на корпоративную почту:
+            </p>
+            <p style="margin: 0; font-family: Arial, sans-serif; font-size: 11pt; font-weight: bold; color: #000000; line-height: 1.5;">
+              Корпоративные коммуникации КОС<br>
+              {% if contact_email %}
+              <a href="mailto:{{ contact_email }}" style="color: #00999C; font-weight: normal;">{{ contact_email }}</a>
+              {% endif %}
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

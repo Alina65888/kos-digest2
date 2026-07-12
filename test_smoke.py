@@ -12,10 +12,11 @@ from pathlib import Path
 
 # Импорт без обращения к LLM
 from src.templater import build_html
+from src.appointments_templater import build_appointments_html
 
 
-def main():
-    print("=== SMOKE TEST ===\n")
+def test_kos_digest():
+    print("=== SMOKE TEST: Дайджест КОС ===\n")
 
     # Сделаем фиктивный draft с реальными именами картинок
     images_dir = Path("sample_input/images")
@@ -110,11 +111,109 @@ def main():
     print(f"✅ Иконок скопировано: {len(icons)}")
 
     if img_tags >= 6 and (len(photos) > 0 or "fake_" in str(sample_imgs[0])):
-        print("\n🎉 OK — приложение работает")
-        return 0
+        print("\n🎉 OK — дайджест КОС работает\n")
+        return True
     else:
-        print("\n❌ Что-то не так")
-        return 1
+        print("\n❌ Что-то не так с дайджестом КОС\n")
+        return False
+
+
+def test_appointments_digest():
+    print("=== SMOKE TEST: Дайджест кадровых назначений ===\n")
+
+    images_dir = Path("sample_input/images")
+    if not images_dir.exists() or not list(images_dir.iterdir()):
+        sample_imgs = ["fake_1.jpg"] * 3
+    else:
+        files = sorted([f.name for f in images_dir.iterdir()
+                        if f.suffix.lower() in {".jpg", ".jpeg", ".png"}])
+        sample_imgs = (files * 3)[:3]
+
+    draft = {
+        "period_label": "с 1 февраля по 30 апреля 2026 г.",
+        "recipient_label": "Рассылка всем сотрудникам «Казаньоргсинтеза»",
+        "sections": [
+            {
+                "key": "key",
+                "title": "В фокусе: ключевые назначения",
+                "people": [
+                    {"name": "Иванов Пётр Сергеевич", "new_position": "Директор по производству",
+                     "previous_position": "Заместитель директора", "image_file": sample_imgs[0],
+                     "education": "Пётр окончил КНИТУ по специальности «Химическая технология».",
+                     "career": "С 2010 года работает на «Казаньоргсинтезе». С апреля 2026 назначен директором."},
+                ],
+            },
+            {
+                "key": "new_faces",
+                "title": "Новые лица",
+                "people": [
+                    {"name": "Смирнова Анна Викторовна", "new_position": "Старший бизнес-партнёр",
+                     "previous_position": "", "image_file": sample_imgs[1],
+                     "education": "Анна окончила КФУ по специальности «Управление персоналом».",
+                     "career": "С апреля 2026 работает на «Казаньоргсинтезе»."},
+                ],
+            },
+            {
+                "key": "new_challenge",
+                "title": "Новый вызов в СИБУРе",
+                "people": [
+                    {"name": "Кузнецов Олег Дмитриевич", "new_position": "Директор по логистике ПОЛИЭФ",
+                     "previous_position": "Директор по логистике КОС", "image_file": sample_imgs[2],
+                     "message": "Олег перешёл на новую должность в ПОЛИЭФ.<br><br>Поздравляем с назначением!"},
+                ],
+            },
+            {
+                "key": "departed",
+                "title": "Кто ушёл из команды?",
+                "people": [
+                    {"name": "Фёдоров Игорь Николаевич", "new_position": "Главный технолог",
+                     "message": "Принял решение выйти на пенсию."},
+                    {"name": "Абрамова Светлана Юрьевна", "new_position": "Менеджер по качеству",
+                     "message": ""},
+                ],
+                "closing_note": "Мы благодарим коллег за работу в компании и желаем удачи.",
+            },
+        ],
+        "org_chart_link": "",
+        "contact_email": "HR_test@example.com",
+        "warnings": [],
+    }
+
+    test_out = Path("output/_smoke_test_appointments")
+    if test_out.exists():
+        shutil.rmtree(test_out)
+
+    html_path = build_appointments_html(
+        draft=draft,
+        images_dir=images_dir,
+        output_dir=test_out,
+        digest_date="SMOKE",
+    )
+    print(f"✅ HTML собран: {html_path}")
+
+    html = html_path.read_text(encoding="utf-8")
+    sections_found = sum(1 for s in draft["sections"] if f'/ {s["title"]} /' in html)
+    people_found = sum(html.count(p["name"]) for s in draft["sections"] for p in s["people"])
+
+    print(f"✅ Разделов найдено в HTML: {sections_found}/4")
+    print(f"✅ Упоминаний людей в HTML: {people_found}")
+
+    if sections_found == 4 and people_found >= 5:
+        print("\n🎉 OK — дайджест назначений работает\n")
+        return True
+    else:
+        print("\n❌ Что-то не так с дайджестом назначений\n")
+        return False
+
+
+def main():
+    ok_kos = test_kos_digest()
+    ok_appointments = test_appointments_digest()
+    if ok_kos and ok_appointments:
+        print("🎉 OK — приложение работает")
+        return 0
+    print("❌ Есть проблемы, см. вывод выше")
+    return 1
 
 
 if __name__ == "__main__":

@@ -10,7 +10,6 @@ import copy
 import logging
 import tempfile
 import zipfile
-import html as html_lib
 from pathlib import Path
 from datetime import datetime
 
@@ -21,6 +20,8 @@ from src.excel_loader import load_posts, validate_images_dir, ExcelValidationErr
 from src.pipeline import build_digest_draft, regenerate_single_card
 from src.templater import build_html
 from src.llm_client import clear_cache
+from src.ui_helpers import esc as _esc
+import src.appointments_ui as appointments_ui
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -32,10 +33,6 @@ st.set_page_config(
 )
 
 # ── Утилиты ───────────────────────────────────────────────────
-
-def _esc(text: str) -> str:
-    """HTML-escape пользовательского ввода для безопасного рендера."""
-    return html_lib.escape(str(text)) if text else ""
 
 
 def _get_images_tmp_dir() -> Path:
@@ -350,7 +347,49 @@ header[data-testid="stHeader"] { background: transparent; }
 
 
 # ══════════════════════════════════════════════════════════════
-#  SIDEBAR
+#  ВЫБОР ТИПА ДАЙДЖЕСТА (лендинг перед всем остальным UI)
+# ══════════════════════════════════════════════════════════════
+
+if "digest_mode" not in st.session_state:
+    st.session_state.digest_mode = None
+
+if st.session_state.digest_mode is None:
+    st.markdown("""
+    <div class="landing-hero">
+        <div class="landing-icon">📰</div>
+        <div class="landing-title">Конструктор дайджестов КОС</div>
+        <div class="landing-subtitle">Выберите, какой дайджест собираем сегодня</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    mode_cols = st.columns(2)
+    with mode_cols[0]:
+        st.markdown("""<div class="landing-step-card" style="width:100%;">
+            <div class="landing-step-num">📰</div>
+            <div class="landing-step-label">Дайджест КОС</div>
+            <div class="landing-step-desc">Главные новости за 2 недели: рубрики, цитата, главная цифра, видео</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Собрать дайджест КОС", type="primary", use_container_width=True, key="pick_kos"):
+            st.session_state.digest_mode = "kos"
+            st.rerun()
+    with mode_cols[1]:
+        st.markdown("""<div class="landing-step-card" style="width:100%;">
+            <div class="landing-step-num">🧑‍💼</div>
+            <div class="landing-step-label">Дайджест назначений</div>
+            <div class="landing-step-desc">Кадровые изменения: ключевые назначения, новые лица, переходы внутри СИБУРа, кто ушёл</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Собрать дайджест назначений", type="primary", use_container_width=True, key="pick_appointments"):
+            st.session_state.digest_mode = "appointments"
+            st.rerun()
+    st.stop()
+
+if st.session_state.digest_mode == "appointments":
+    appointments_ui.render()
+    st.stop()
+
+
+# ══════════════════════════════════════════════════════════════
+#  SIDEBAR (режим «Дайджест КОС»)
 # ══════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -363,6 +402,10 @@ with st.sidebar:
     </div>
     <div class="sidebar-version">v2.1 &middot; Веб-конструктор</div>
     """, unsafe_allow_html=True)
+
+    if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
+        st.session_state.digest_mode = None
+        st.rerun()
 
     st.markdown("### Источники данных")
 
