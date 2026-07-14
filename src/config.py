@@ -8,6 +8,7 @@ ROOT_DIR = Path(__file__).parent.parent
 PROMPTS_DIR = ROOT_DIR / "prompts"
 TEMPLATES_DIR = ROOT_DIR / "templates"
 ASSETS_DIR = ROOT_DIR / "assets" / "icons"
+APPOINTMENTS_ASSETS_DIR = ASSETS_DIR / "appointments"
 CACHE_DIR = ROOT_DIR / ".cache"
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "output"
 DEFAULT_INPUT_DIR = ROOT_DIR / "sample_input"
@@ -73,6 +74,16 @@ APPOINTMENT_SECTIONS = [
 ]
 APPOINTMENT_SECTION_KEYS = [s["key"] for s in APPOINTMENT_SECTIONS]
 APPOINTMENT_SECTION_TITLES = {s["key"]: s["title"] for s in APPOINTMENT_SECTIONS}
+
+# Постоянные картинки-баннеры (фирменный дизайн, не меняются от письма к письму)
+APPOINTMENT_HEADER_BANNER = "header_banner.png"
+APPOINTMENT_FOOTER_BANNER = "footer_banner.png"
+APPOINTMENT_SECTION_BANNERS = {
+    "key": "section_key.png",
+    "new_faces": "section_new_faces.png",
+    "new_challenge": "section_new_challenge.png",
+    "departed": "section_departed.png",
+}
 
 # Разделы, для которых карточка содержит фото + био (образование/карьера)
 APPOINTMENT_BIO_SECTIONS = {"key", "new_faces"}

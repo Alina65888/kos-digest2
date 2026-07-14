@@ -5,13 +5,17 @@
 appointments_YYYY-MM-DD.files/, рендерит templates/appointments_template.html.
 Кадрирование (_fit_image) переиспользуется из templater.py, не дублируется.
 """
+import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
 from jinja2 import Environment, FileSystemLoader
 
-from .config import TEMPLATES_DIR, SIZE_PERSON_PHOTO
+from .config import (
+    TEMPLATES_DIR, SIZE_PERSON_PHOTO, APPOINTMENTS_ASSETS_DIR,
+    APPOINTMENT_HEADER_BANNER, APPOINTMENT_FOOTER_BANNER, APPOINTMENT_SECTION_BANNERS,
+)
 from .templater import _fit_image
 
 log = logging.getLogger(__name__)
@@ -38,6 +42,11 @@ def build_appointments_html(
     files_dir = output_dir / files_dirname
     files_dir.mkdir(exist_ok=True)
 
+    # Постоянные баннеры (шапка, заголовки разделов, подвал) — копируем всегда,
+    # независимо от того, что есть в исходных данных письма.
+    for icon_file in APPOINTMENTS_ASSETS_DIR.glob("*.png"):
+        shutil.copy(icon_file, files_dir / icon_file.name)
+
     images_dir = Path(images_dir)
 
     def prepare(image_file: str) -> str:
@@ -59,6 +68,7 @@ def build_appointments_html(
         return ""
 
     for section in draft.get("sections", []) or []:
+        section["banner"] = APPOINTMENT_SECTION_BANNERS.get(section.get("key"), "")
         for person in section.get("people", []) or []:
             if person.get("image_file"):
                 person["image_file"] = prepare(person["image_file"])
@@ -83,6 +93,8 @@ def build_appointments_html(
         sections=draft.get("sections", []),
         org_chart_link=draft.get("org_chart_link") or "",
         contact_email=draft.get("contact_email") or "",
+        header_banner=APPOINTMENT_HEADER_BANNER,
+        footer_banner=APPOINTMENT_FOOTER_BANNER,
     )
 
     htm_path.write_text(html_output, encoding="utf-8")

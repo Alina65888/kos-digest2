@@ -16,15 +16,19 @@
 
       <table width="755" bgcolor="#ffffff" border="0" cellspacing="0" cellpadding="0">
 
-        {# ======== ШАПКА (текстовая, без баннера-картинки) ======== #}
+        {# ======== ШАПКА (постоянный фирменный баннер) ======== #}
         <tr>
-          <td bgcolor="#00313C" align="center" style="padding: 26px 20px;">
-            <p style="margin: 0; font-size: 20pt; font-weight: bold; color: #ffffff;">Кадровые изменения и назначения</p>
-            {% if period_label %}
-            <p style="margin: 6px 0 0 0; font-size: 12.5pt; color: #77E2C3;">{{ period_label }}</p>
-            {% endif %}
+          <td align="center" style="padding: 0;">
+            <img src="{{ assets_url }}/{{ header_banner }}" alt="Кадровые назначения" width="755" height="280" style="display: block; max-width: 100%;">
           </td>
         </tr>
+        {% if period_label %}
+        <tr>
+          <td bgcolor="#00313C" align="center" style="padding: 10px 20px;">
+            <p style="margin: 0; font-size: 12.5pt; color: #77E2C3;">{{ period_label }}</p>
+          </td>
+        </tr>
+        {% endif %}
 
         {# ======== ВСТУПЛЕНИЕ ======== #}
         <tr>
@@ -40,16 +44,20 @@
         {% for section in sections %}
           {% if section.people and section.people|length > 0 %}
 
-          {# Заголовок раздела #}
+          {# Заголовок раздела (постоянный баннер-картинка) #}
           <tr>
-            <td style="padding: 20px 20px 0 20px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-bottom: 1.5pt solid #008C95; margin-bottom: 15px;">
+            <td align="center" style="padding: 20px 20px 15px 20px;">
+              {% if section.banner %}
+              <img src="{{ assets_url }}/{{ section.banner }}" alt="{{ section.title }}" width="715" height="71" style="display: block; max-width: 100%;">
+              {% else %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-bottom: 1.5pt solid #008C95;">
                 <tr>
                   <td style="padding-bottom: 6px;">
                     <span style="font-size: 16pt; font-family: Arial, sans-serif; color: #00313C; font-weight: bold;">/ {{ section.title }} /</span>
                   </td>
                 </tr>
               </table>
+              {% endif %}
             </td>
           </tr>
 
@@ -137,7 +145,14 @@
         </tr>
         {% endif %}
 
-        {# ======== ПОДВАЛ ======== #}
+        {# ======== ПОДВАЛ (постоянный фирменный баннер) ======== #}
+        <tr>
+          <td align="center" style="padding: 20px 20px 0 20px;">
+            <img src="{{ assets_url }}/{{ footer_banner }}" alt="СИБУР КОС" width="715" height="151" style="display: block; max-width: 100%;">
+          </td>
+        </tr>
+
+        {# ======== КОНТАКТЫ ======== #}
         <tr>
           <td style="padding: 20px; background-color: #FAFAFA; text-align: center;">
             <p style="margin: 0 0 5px 0; font-family: Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.5;">

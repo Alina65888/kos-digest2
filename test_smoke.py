@@ -192,13 +192,21 @@ def test_appointments_digest():
     print(f"✅ HTML собран: {html_path}")
 
     html = html_path.read_text(encoding="utf-8")
-    sections_found = sum(1 for s in draft["sections"] if f'/ {s["title"]} /' in html)
+    from src.config import APPOINTMENT_SECTION_BANNERS, APPOINTMENT_HEADER_BANNER, APPOINTMENT_FOOTER_BANNER
+    sections_found = sum(1 for s in draft["sections"] if APPOINTMENT_SECTION_BANNERS.get(s["key"], "") in html)
     people_found = sum(html.count(p["name"]) for s in draft["sections"] for p in s["people"])
+
+    files_dir = test_out / "appointments_SMOKE.files"
+    banners_copied = all(
+        (files_dir / name).exists()
+        for name in [APPOINTMENT_HEADER_BANNER, APPOINTMENT_FOOTER_BANNER, *APPOINTMENT_SECTION_BANNERS.values()]
+    )
 
     print(f"✅ Разделов найдено в HTML: {sections_found}/4")
     print(f"✅ Упоминаний людей в HTML: {people_found}")
+    print(f"✅ Постоянные баннеры скопированы: {banners_copied}")
 
-    if sections_found == 4 and people_found >= 5:
+    if sections_found == 4 and people_found >= 5 and banners_copied:
         print("\n🎉 OK — дайджест назначений работает\n")
         return True
     else:
