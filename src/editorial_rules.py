@@ -10,7 +10,14 @@ import html
 import re
 from typing import Any, Dict, Iterable, List, Tuple
 
-from .config import CANONICAL_RUBRIC_ORDER
+from .config import (
+    CANONICAL_RUBRIC_ORDER,
+    CARD_TEXT_MIN_CHARS,
+    CARD_TEXT_TARGET_CHARS,
+    CARD_TEXT_MAX_CHARS,
+    VIDEO_TEXT_MIN_CHARS,
+    RICH_SOURCE_MIN_CHARS,
+)
 
 
 RUBRIC_ALIASES = {
@@ -220,7 +227,25 @@ def extract_direct_quote(post: Dict[str, Any]) -> str:
     return re.sub(r"\s+", " ", max(matches, key=len)).strip()
 
 
-def extractive_summary(post: Dict[str, Any], max_chars: int = 460) -> str:
+def _sentence_count(value: Any) -> int:
+    text = re.sub(r"\s+", " ", _plain_text(value)).strip()
+    if not text:
+        return 0
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    return len(sentences)
+
+
+def _source_supports_full_lead(post: Dict[str, Any]) -> bool:
+    text = re.sub(r"\s+", " ", str(post.get("text") or "")).strip()
+    return len(text) >= RICH_SOURCE_MIN_CHARS or _sentence_count(text) >= 3
+
+
+def extractive_summary(
+    post: Dict[str, Any],
+    max_chars: int = CARD_TEXT_MAX_CHARS,
+    min_chars: int = CARD_TEXT_TARGET_CHARS,
+    max_sentences: int = 4,
+) -> str:
     text = re.sub(r"\s+", " ", str(post.get("text") or "")).strip()
     if not text:
         return str(post.get("title") or "").strip()
@@ -233,7 +258,10 @@ def extractive_summary(post: Dict[str, Any], max_chars: int = 460) -> str:
         if chosen and len(proposal) > max_chars:
             break
         chosen.append(sentence)
-        if len(proposal) >= min(240, max_chars) or len(chosen) >= 3:
+        if (
+            (len(proposal) >= min(min_chars, max_chars) and len(chosen) >= 2)
+            or len(chosen) >= max_sentences
+        ):
             break
     result = " ".join(chosen).strip()
     if len(result) > max_chars:
@@ -411,19 +439,38 @@ def validate_rewrite_output(
     elif not is_main:
         title = title.upper()
 
+    # Главный блок содержит только заголовок. Отсутствие поля text в ответе
+    # модели здесь штатно и не должно давать ложный флаг качества.
+    if is_main:
+        return {"title": title}, flags
+
     text = str(raw.get("text") or "").strip()
     plain = _plain_text(text)
     has_cliche = any(phrase in _norm(plain) for phrase in FORBIDDEN_CLICHES)
+    is_video = bool(context.get("is_video"))
+    min_chars = VIDEO_TEXT_MIN_CHARS if is_video else CARD_TEXT_MIN_CHARS
+    too_short = _source_supports_full_lead(post) and (
+        len(plain) < min_chars
+        or (not is_video and _sentence_count(plain) < 2)
+    )
     if (
         not text
-        or len(plain) > 700
+        or len(plain) > CARD_TEXT_MAX_CHARS
         or not has_only_source_numbers(plain, post)
         or not has_reasonable_source_overlap(plain, post)
         or has_cliche
+        or too_short
     ):
-        text = extractive_summary(post)
+        text = extractive_summary(
+            post,
+            max_chars=CARD_TEXT_MAX_CHARS,
+            min_chars=CARD_TEXT_TARGET_CHARS,
+            max_sentences=4,
+        )
         if has_cliche:
             flags.append("ИИ-штамп удален")
+        elif too_short:
+            flags.append("Короткая подводка дополнена фактами из источника")
         else:
             flags.append("Подводка заменена на фактический фрагмент")
     text = sanitize_card_text(text, str(post.get("link") or ""))
