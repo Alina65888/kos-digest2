@@ -14,22 +14,21 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "output"
 DEFAULT_INPUT_DIR = ROOT_DIR / "sample_input"
 
 # === LLM ===
-CLASSIFY_BATCH_SIZE = 10        # классифицируем по 10 постов в одном запросе
-CLASSIFY_TEMPERATURE = 0.0      # одинаковый исходник должен давать одинаковую рубрику
-PLAN_TEMPERATURE = 0.0
-REWRITE_TEMPERATURE = 0.25      # достаточно вариативности без свободного домысливания
-LLM_MAX_RETRIES = 3
-LLM_PARALLEL_WORKERS = 2        # быстрее последовательного режима, но без резкого всплеска TPM
+CLASSIFY_BATCH_SIZE = 8         # небольшие батчи снижают риск потери отдельных постов
+CLASSIFY_TEMPERATURE = 0.2
+PLAN_TEMPERATURE = 0.15
+REWRITE_TEMPERATURE = 0.45
+LLM_MAX_RETRIES = 5             # сколько раз ретраить упавший запрос
+LLM_PARALLEL_WORKERS = 1         # последовательно, чтобы не упираться в лимит TPM
+CLASSIFY_TEXT_LIMIT = 5000
+REWRITE_TEXT_LIMIT = 5000
 
-# === РЕДАКЦИОННЫЕ ОГРАНИЧЕНИЯ ДАЙДЖЕСТА ===
-MAIN_BLOCK_SIZE = 3
-RUBRIC_TARGET_MIN = 3
-RUBRIC_TARGET_MAX = 4
-CARD_TITLE_MIN_WORDS = 2
-CARD_TITLE_MAX_WORDS = 4
-CARD_TEXT_MAX_CHARS = 300
-CARD_TEXT_MAX_SENTENCES = 3
-MAIN_FIGURE_DESC_MAX_WORDS = 10
+# === РЕДАКТОРСКИЕ ОГРАНИЧЕНИЯ ===
+DIGEST_WINDOW_DAYS = 14
+MAIN_BLOCK_SIZE = 4
+MIN_MAIN_IMPORTANCE = 6
+MIN_CARD_IMPORTANCE = 4
+MAX_CARDS_PER_RUBRIC = 4
 
 # === КАНОНИЧЕСКИЙ ПОРЯДОК РУБРИК ===
 CANONICAL_RUBRIC_ORDER = [
@@ -63,7 +62,7 @@ SIZE_PHOTO = (80, 80)    # портрет автора цитаты (кругл�
 
 # === ОБЯЗАТЕЛЬНЫЕ КОЛОНКИ EXCEL ===
 REQUIRED_COLUMNS = ["text"]
-OPTIONAL_COLUMNS = ["date", "author", "title", "link", "image_file", "rubric"]
+OPTIONAL_COLUMNS = ["date", "author", "title", "link", "image_file"]
 ALL_KNOWN_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 # === ФИРМЕННЫЕ ЦВЕТА (для подсветки в UI) ===

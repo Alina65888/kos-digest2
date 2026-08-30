@@ -147,6 +147,7 @@ def build_html(
         main_figure=draft.get("main_figure"),
         main_video=draft.get("main_video"),
         main_quote=draft.get("main_quote"),
+        main_quote_rubric=draft.get("main_quote_rubric"),
         rubrics=draft.get("rubrics", []),
         video_after_rubric_idx=draft.get("video_after_rubric_idx", 0),
     )

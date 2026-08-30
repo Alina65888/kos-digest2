@@ -4,8 +4,9 @@
 """
 import pandas as pd
 from pathlib import Path
+from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Tuple
-from .config import REQUIRED_COLUMNS, ALL_KNOWN_COLUMNS
+from .config import REQUIRED_COLUMNS, ALL_KNOWN_COLUMNS, DIGEST_WINDOW_DAYS
 
 
 class ExcelValidationError(Exception):
@@ -51,7 +52,6 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         "имя файла фото": "image_file",
         "автор поста": "author",
         "заголовок поста": "title",
-        "рубрика": "rubric",
     }
     df.columns = [COLUMN_ALIASES.get(c, c) for c in df.columns]
 
@@ -99,7 +99,6 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
             "text": str(row.get("text", "")).strip(),
             "link": str(row.get("link", "")).strip(),
             "image_file": str(row.get("image_file", "")).strip(),
-            "rubric": str(row.get("rubric", "")).strip(),
         }
         # Пустые тексты — пропускаем с предупреждением
         if not post["text"]:
@@ -111,6 +110,78 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         raise ExcelValidationError("После фильтрации не осталось ни одного непустого поста.")
 
     return posts, warnings
+
+
+def filter_posts_by_period(
+    posts: List[Dict[str, Any]],
+    digest_date: date | datetime,
+    window_days: int = DIGEST_WINDOW_DAYS,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
+    """Оставляет публикации за указанное окно, не теряя строки без даты.
+
+    Даты считаются включительно: для выпуска 30 августа окно в 14 дней –
+    с 17 по 30 августа. Строки с пустой или нераспознанной датой остаются в
+    наборе, но пользователь получает предупреждение.
+    """
+    if isinstance(digest_date, datetime):
+        end_date = digest_date.date()
+    elif isinstance(digest_date, date):
+        end_date = digest_date
+    else:
+        parsed_end = pd.to_datetime(digest_date, errors="coerce")
+        if pd.isna(parsed_end):
+            raise ExcelValidationError(f"Не удалось распознать дату выпуска: {digest_date}")
+        end_date = parsed_end.date()
+
+    start_date = end_date - timedelta(days=max(1, window_days) - 1)
+    kept: List[Dict[str, Any]] = []
+    excluded: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    undated_rows: List[int] = []
+    invalid_rows: List[int] = []
+
+    for post in posts:
+        raw_date = str(post.get("date") or "").strip()
+        if not raw_date:
+            kept.append(post)
+            undated_rows.append(int(post.get("row_idx") or 0))
+            continue
+
+        parsed = pd.to_datetime(raw_date, errors="coerce")
+        if pd.isna(parsed):
+            kept.append(post)
+            invalid_rows.append(int(post.get("row_idx") or 0))
+            continue
+
+        post_date = parsed.date()
+        post["date"] = post_date.isoformat()
+        if start_date <= post_date <= end_date:
+            kept.append(post)
+        else:
+            excluded.append({
+                **post,
+                "exclude_reason": (
+                    f"Дата {post_date.strftime('%d.%m.%Y')} вне периода "
+                    f"{start_date.strftime('%d.%m.%Y')}–{end_date.strftime('%d.%m.%Y')}"
+                ),
+            })
+
+    if undated_rows:
+        warnings.append(
+            f"У {len(undated_rows)} пост(ов) не указана дата – они оставлены в отборе. "
+            f"Строки: {', '.join(map(str, undated_rows[:8]))}."
+        )
+    if invalid_rows:
+        warnings.append(
+            f"У {len(invalid_rows)} пост(ов) дата не распознана – они оставлены в отборе. "
+            f"Строки: {', '.join(map(str, invalid_rows[:8]))}."
+        )
+    if excluded:
+        warnings.append(
+            f"За пределами последних {window_days} дней исключено постов: {len(excluded)}."
+        )
+
+    return kept, excluded, warnings
 
 
 def validate_images_dir(images_dir: Path, posts: List[Dict[str, Any]]) -> List[str]:
