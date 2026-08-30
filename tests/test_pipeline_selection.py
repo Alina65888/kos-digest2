@@ -125,6 +125,7 @@ class PipelineSelectionTests(unittest.TestCase):
             draft = build_digest_draft(posts)
 
         self.assertIsNone(draft["main_figure"])
+        self.assertEqual(draft["main_block"][0]["title"], "ПРОИЗВОДСТВЕННЫЙ РЕЗУЛЬТАТ")
         self.assertNotIn("Анонс форума", [c["title"] for r in draft["rubrics"] for c in r["cards"]])
         self.assertTrue(any("Анонс исключен" in item["reason"] for item in draft["excluded"]))
         rubric_names = [rubric["name"] for rubric in draft["rubrics"]]
