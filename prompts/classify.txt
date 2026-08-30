@@ -19,7 +19,7 @@
       "quote_author_role": null,
       "is_video": false,
       "is_special": false,
-      "summary_short": "два-три предложения только по исходнику"
+      "summary_short": "два-четыре содержательных предложения только по исходнику"
     }
   ]
 }
