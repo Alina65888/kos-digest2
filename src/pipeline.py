@@ -375,14 +375,25 @@ def build_digest_draft(
             or post.get("importance", 0) < MIN_MAIN_IMPORTANCE
         ):
             continue
-        checked, title_flags = validate_rewrite_output(
-            post,
-            {"is_main_block": True},
-            {
-                "title": plan_main_titles.get(pid) or post.get("title") or post.get("topic"),
-                "text": post.get("summary_short") or extractive_summary(post),
-            },
-        )
+        main_context = {"is_main_block": True}
+        try:
+            # Заголовок из плана нужен для отбора, но не должен попадать в
+            # готовый дайджест без редакторской обработки: именно здесь чаще
+            # всего появлялись длинные протокольные формулировки.
+            checked = rewrite_card(post, main_context)
+            title_flags = checked.get("_quality_flags", [])
+        except Exception as exc:
+            warnings.append(
+                f"Главное, пост #{pid}: использован фактический заголовок из-за ошибки LLM ({exc})"
+            )
+            checked, title_flags = validate_rewrite_output(
+                post,
+                main_context,
+                {
+                    "title": plan_main_titles.get(pid) or post.get("title") or post.get("topic"),
+                    "text": post.get("summary_short") or extractive_summary(post),
+                },
+            )
         main_block.append({
             "post_id": pid,
             "title": checked["title"],
