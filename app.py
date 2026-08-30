@@ -22,7 +22,11 @@ from src.excel_loader import (
     validate_images_dir,
     ExcelValidationError,
 )
-from src.pipeline import build_digest_draft, regenerate_single_card
+from src.pipeline import (
+    build_digest_draft,
+    regenerate_card_headline,
+    regenerate_single_card,
+)
 from src.templater import build_html
 from src.llm_client import clear_cache
 from src.ui_helpers import esc as _esc
@@ -435,7 +439,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.3 &middot; Развернутые подводки</div>
+    <div class="sidebar-version">v2.4 &middot; Конструктор заголовков</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
@@ -957,7 +961,7 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
             new_img = _photo_selector("Фото", card.get("image_file", ""),
                                        key=f"c_i_{r_idx}_{c_idx}")
 
-            col_a, col_b = st.columns(2)
+            col_a, col_b, col_c = st.columns(3)
             with col_a:
                 if st.button("Сохранить", key=f"sv_{r_idx}_{c_idx}", use_container_width=True):
                     card["title"] = new_title
@@ -968,11 +972,22 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     st.toast("Сохранено", icon="✅")
                     st.rerun()
             with col_b:
-                if st.button("Перегенерировать", key=f"rg_{r_idx}_{c_idx}",
+                if st.button("Другой заголовок", key=f"rh_{r_idx}_{c_idx}",
                              use_container_width=True,
-                             help="AI придумает новый заголовок и текст"):
+                             help="AI соберет пять вариантов и выберет лучший, не меняя текст"):
                     try:
-                        with st.spinner("Генерирую новый вариант..."):
+                        with st.spinner("Конструирую варианты заголовка..."):
+                            regenerate_card_headline(draft, r_idx, c_idx)
+                        st.toast("Заголовок обновлен", icon="🎲")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Ошибка генерации заголовка: {e}")
+            with col_c:
+                if st.button("Вся карточка", key=f"rg_{r_idx}_{c_idx}",
+                             use_container_width=True,
+                             help="AI придумает новый заголовок и заново напишет подводку"):
+                    try:
+                        with st.spinner("Генерирую новый вариант карточки..."):
                             regenerate_single_card(draft, r_idx, c_idx)
                         st.toast("Карточка перегенерирована", icon="🎲")
                         st.rerun()
