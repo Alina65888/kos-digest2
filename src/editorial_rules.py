@@ -117,6 +117,16 @@ WEAK_HEADLINE_WORDS = {
     "масштабный", "масштабная", "значимый", "значимая", "новый", "новая",
 }
 
+ABSTRACT_HEADLINE_OPENERS = {
+    "внедрение", "проведение", "реализация", "организация", "обновление",
+    "развитие", "создание", "обучение", "подготовка", "обсуждение",
+}
+
+GENERIC_HEADLINE_NOUNS = {
+    "команда", "команды", "сотрудники", "специалисты", "участники",
+    "мероприятие", "проект", "работа", "работы", "производство",
+}
+
 HEADLINE_ACTION_ENDINGS = (
     "ли", "ла", "ло", "ет", "ют", "ит", "ат", "ят", "ен", "ена", "ены",
 )
@@ -550,7 +560,12 @@ def _headline_score(title: str, post: Dict[str, Any], candidate_index: int) -> f
     source_stems = {token[:5] for token in source_tokens if len(token) >= 4}
     supported_specific = sum(
         1 for word in content_words
-        if word[:5] in source_stems and word not in WEAK_HEADLINE_WORDS
+        if (
+            word[:5] in source_stems
+            and word not in WEAK_HEADLINE_WORDS
+            and word not in GENERIC_HEADLINE_NOUNS
+            and word not in ABSTRACT_HEADLINE_OPENERS
+        )
     )
 
     score = min(supported_specific, 3) * 0.8
@@ -567,6 +582,10 @@ def _headline_score(title: str, post: Dict[str, Any], candidate_index: int) -> f
     if number_tokens(title):
         score += 0.5
     score -= sum(1.25 for word in words if word in WEAK_HEADLINE_WORDS)
+    if words and words[0] in ABSTRACT_HEADLINE_OPENERS:
+        score -= 1.5
+    if words and words[0] in GENERIC_HEADLINE_NOUNS:
+        score -= 0.75
     score -= title.count(":") * 0.5
     score -= candidate_index * 0.15
     return score

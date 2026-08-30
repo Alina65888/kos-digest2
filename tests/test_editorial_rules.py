@@ -206,6 +206,27 @@ class EditorialRulesTests(unittest.TestCase):
         self.assertEqual(result, {"title": "ОБУЧЕНИЕ ОПЕРАТОРОВ"})
         self.assertTrue(any("Заголовок заменен" in flag for flag in flags))
 
+    def test_concrete_detail_beats_protocol_nominalization(self):
+        post = self._post(
+            "Остановочный павильон обновили",
+            (
+                "На встречах сотрудники просили обновить остановочный павильон у проходной. "
+                "Подрядчик заменил крышу и скамейки, установил освещение. Работы завершены."
+            ),
+        )
+        result, _ = validate_rewrite_output(
+            post,
+            {"rubric": "ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ", "title_only": True},
+            {
+                "title": "ОБНОВЛЕНИЕ ОСТАНОВКИ ЗАВЕРШЕНО",
+                "title_candidates": [
+                    "КРЫША, СКАМЕЙКИ И СВЕТ ДЛЯ ОСТАНОВКИ",
+                    "СОТРУДНИКИ ДОЖДАЛИСЬ ОБНОВЛЕНИЯ ОСТАНОВКИ",
+                ],
+            },
+        )
+        self.assertEqual(result, {"title": "КРЫША, СКАМЕЙКИ И СВЕТ ДЛЯ ОСТАНОВКИ"})
+
     def test_period_filter_is_inclusive_and_keeps_undated_rows(self):
         posts = [
             {"row_idx": 2, "date": "2026-08-17", "title": "Граница", "text": "Текст"},
