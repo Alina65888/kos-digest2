@@ -29,6 +29,9 @@ MAIN_BLOCK_SIZE = 4
 MIN_MAIN_IMPORTANCE = 6
 MIN_CARD_IMPORTANCE = 4
 MAX_CARDS_PER_RUBRIC = 4
+# Эта рубрика строится на явной связке «просили -> сделали». Если забрать
+# такой пост в «Главное», читатель теряет саму механику обратной связи.
+MAIN_BLOCK_RESERVED_RUBRICS = {"ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ"}
 
 # === КАНОНИЧЕСКИЙ ПОРЯДОК РУБРИК ===
 CANONICAL_RUBRIC_ORDER = [

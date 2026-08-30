@@ -133,6 +133,57 @@ class PipelineSelectionTests(unittest.TestCase):
         self.assertNotIn("КАРЬЕРА", rubric_names)
         self.assertTrue(any(item["title"] == "Мелкий анонс" for item in draft["excluded"]))
 
+    def test_you_asked_post_stays_in_its_rubric_even_if_plan_marks_it_main(self):
+        posts = [
+            {
+                "title": "Производственный результат",
+                "text": "Команда завершила ремонт оборудования.",
+                "date": "2026-08-30",
+            },
+            {
+                "title": "Остановку обновили",
+                "text": "Сотрудники просили обновить остановку. Работы завершены.",
+                "date": "2026-08-29",
+            },
+        ]
+        rubrics = {
+            1: "ПРОИЗВОДСТВО",
+            2: "ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ",
+        }
+        importances = {1: 8, 2: 8}
+
+        def fake_classify(input_posts, progress=None):
+            return classified_from(input_posts, rubrics, importances)
+
+        plan = {
+            "subject_topics": ["ремонт", "остановка"],
+            "main_block": [
+                {"post_id": 1, "title": "Производственный результат"},
+                {"post_id": 2, "title": "Остановку обновили"},
+            ],
+            "main_figure_post_id": None,
+            "main_video_post_id": None,
+            "main_quote_post_id": None,
+            "rubrics": [
+                {"name": "ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ", "post_ids": [2], "quote_position": None},
+            ],
+            "skipped": [],
+        }
+
+        with (
+            patch("src.pipeline.classify_posts", side_effect=fake_classify),
+            patch("src.pipeline.plan_digest", return_value=plan),
+            patch("src.pipeline.rewrite_card", side_effect=fake_rewrite),
+        ):
+            draft = build_digest_draft(posts)
+
+        self.assertEqual([item["post_id"] for item in draft["main_block"]], [1])
+        feedback = next(
+            rubric for rubric in draft["rubrics"]
+            if rubric["name"] == "ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ"
+        )
+        self.assertEqual([card["post_id"] for card in feedback["cards"]], [2])
+
     def test_rubric_limit_excludes_lower_priority_cards_without_silent_truncation(self):
         posts = [
             {"title": f"Производство {idx}", "text": f"Производственный пост {idx}.", "date": f"2026-08-{idx + 10:02d}"}
