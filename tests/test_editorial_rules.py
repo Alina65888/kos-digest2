@@ -98,6 +98,52 @@ class EditorialRulesTests(unittest.TestCase):
         self.assertNotIn("script", result["text"].lower())
         self.assertTrue(flags)
 
+    def test_rich_source_expands_an_overly_short_lead(self):
+        post = self._post(
+            "Остановочный ремонт завершен",
+            (
+                "Специалисты завершили остановочный ремонт на заводе поликарбонатов. "
+                "Во время работ проверили оборудование и заменили изношенные узлы. "
+                "Команда провела контрольный осмотр перед запуском производства. "
+                "Оборудование вернули в работу по утвержденному графику."
+            ),
+        )
+        result, flags = validate_rewrite_output(
+            post,
+            {"rubric": "ПРОИЗВОДСТВО"},
+            {
+                "title": "ОСТАНОВОЧНЫЙ РЕМОНТ ЗАВЕРШЕН",
+                "text": "Специалисты завершили ремонт.",
+            },
+        )
+        plain = result["text"].replace("&quot;", '"')
+        self.assertGreaterEqual(len(plain), 170)
+        self.assertGreaterEqual(plain.count("."), 2)
+        self.assertTrue(any("дополнена" in flag for flag in flags))
+
+    def test_short_source_is_not_padded_with_generic_language(self):
+        post = self._post("Компрессор запущен", "После ремонта компрессор запущен в работу.")
+        result, flags = validate_rewrite_output(
+            post,
+            {"rubric": "ПРОИЗВОДСТВО"},
+            {
+                "title": "КОМПРЕССОР ЗАПУЩЕН",
+                "text": "После ремонта компрессор запущен в работу.",
+            },
+        )
+        self.assertIn("компрессор", result["text"].lower())
+        self.assertFalse(any("дополнена" in flag for flag in flags))
+
+    def test_main_headline_does_not_require_a_lead(self):
+        post = self._post("Серебро команды", "Команда заняла второе место в турнире.")
+        result, flags = validate_rewrite_output(
+            post,
+            {"is_main_block": True},
+            {"title": "Серебро команды"},
+        )
+        self.assertEqual(result, {"title": "Серебро команды"})
+        self.assertEqual(flags, [])
+
     def test_period_filter_is_inclusive_and_keeps_undated_rows(self):
         posts = [
             {"row_idx": 2, "date": "2026-08-17", "title": "Граница", "text": "Текст"},
