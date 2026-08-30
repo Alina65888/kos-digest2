@@ -24,6 +24,7 @@ from .config import (
     CANONICAL_RUBRIC_ORDER,
     RUBRIC_ICONS,
     MAIN_BLOCK_SIZE,
+    MAIN_BLOCK_RESERVED_RUBRICS,
     MIN_MAIN_IMPORTANCE,
     MIN_CARD_IMPORTANCE,
     MAX_CARDS_PER_RUBRIC,
@@ -373,6 +374,8 @@ def build_digest_draft(
             or pid in used_ids
             or pid in excluded_reasons
             or post.get("importance", 0) < MIN_MAIN_IMPORTANCE
+            or canonicalize_rubric(post.get("rubric_candidate"))
+            in MAIN_BLOCK_RESERVED_RUBRICS
         ):
             continue
         main_context = {"is_main_block": True}
