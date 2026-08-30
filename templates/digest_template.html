@@ -107,7 +107,7 @@
 
         {# ======== РУБРИКИ ======== #}
         {% for rubric in rubrics %}
-          {% if rubric.cards and rubric.cards|length > 0 %}
+          {% if (rubric.cards and rubric.cards|length > 0) or (main_quote and rubric.name == main_quote_rubric) %}
 
           {# Заголовок рубрики с иконкой #}
           <tr>
@@ -189,6 +189,28 @@
               {% endif %}
 
               {% endfor %}
+
+              {# Цитата может быть единственным материалом рубрики #}
+              {% if main_quote and rubric.name == main_quote_rubric and rubric.quote_before == 0 %}
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px; background-color: #f0fafa; border-left: 5px solid #008C95;">
+                <tr>
+                  {% if main_quote.photo_file %}
+                  <td width="100" valign="middle" style="padding: 14px 12px 14px 16px;">
+                    <img src="{{ assets_url }}/{{ main_quote.photo_file }}" width="80" height="80" style="border-radius: 40px; display: block;" alt="">
+                  </td>
+                  {% endif %}
+                  <td valign="middle" style="padding: 14px 18px 14px 6px;">
+                    <p style="margin: 0 0 8px 0; font-family: Arial, sans-serif; font-size: 12pt; font-style: italic; color: #00313C; line-height: 1.5;">
+                      <span style="font-size: 24pt; color: #008C95; font-family: Georgia, serif; line-height: 0; vertical-align: -8px; margin-right: 4px;">&ldquo;</span>{{ main_quote.text }}
+                    </p>
+                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 10pt; font-weight: bold; color: #008C95;">
+                      {{ main_quote.author_name }}<br>
+                      <span style="font-weight: normal; color: #5a8588;">{{ main_quote.author_role }}</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
 
               {# Главное видео — после последней карточки нужной рубрики #}
               {% if main_video and video_after_rubric_idx == loop.index %}

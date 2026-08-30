@@ -16,7 +16,12 @@ from datetime import datetime
 import streamlit as st
 
 from src.config import BRAND_TEAL, BRAND_DARK, BRAND_MINT
-from src.excel_loader import load_posts, validate_images_dir, ExcelValidationError
+from src.excel_loader import (
+    load_posts,
+    filter_posts_by_period,
+    validate_images_dir,
+    ExcelValidationError,
+)
 from src.pipeline import build_digest_draft, regenerate_single_card
 from src.templater import build_html
 from src.llm_client import clear_cache
@@ -92,6 +97,36 @@ def _progress_callback(widget):
         except Exception:
             pass
     return cb
+
+
+def _show_source(draft, post_id, key: str, quality_flags=None):
+    """Показывает исходный пост рядом с редактируемой формулировкой."""
+    if quality_flags:
+        st.caption("Автопроверка: " + "; ".join(quality_flags))
+    source = next(
+        (post for post in draft.get("_classified", []) if post.get("post_id") == post_id),
+        None,
+    )
+    if not source:
+        return
+    with st.expander("Сверить с исходником", expanded=False):
+        meta = " · ".join(
+            part for part in [
+                str(source.get("date") or "").strip(),
+                str(source.get("author") or "").strip(),
+                str(source.get("title") or "").strip(),
+            ]
+            if part
+        )
+        if meta:
+            st.caption(meta)
+        st.text_area(
+            "Исходный текст",
+            value=str(source.get("text") or ""),
+            height=180,
+            disabled=True,
+            key=f"source_{key}",
+        )
 
 
 # ── Состояние сессии ──────────────────────────────────────────
@@ -400,7 +435,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.2 &middot; Точная редактура</div>
+    <div class="sidebar-version">v2.2 &middot; Редакторская проверка</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
@@ -412,7 +447,7 @@ with st.sidebar:
     uploaded_xlsx = st.file_uploader(
         "Excel с постами",
         type=["xlsx"],
-        help="Файл .xlsx с колонками: date, author, title, text, link, image_file, rubric",
+        help="Файл .xlsx с колонками: date, author, title, text, link, image_file",
     )
 
     uploaded_images = st.file_uploader(
@@ -431,6 +466,12 @@ with st.sidebar:
     use_cache = st.checkbox("Кэш LLM-запросов", value=True,
                             help="Повторные запросы на тех же данных бесплатны")
     os.environ["LLM_CACHE_ENABLED"] = "1" if use_cache else "0"
+
+    filter_period = st.checkbox(
+        "Только последние 14 дней",
+        value=True,
+        help="Отбирает публикации по дате выпуска. Строки без даты остаются в наборе с предупреждением.",
+    )
 
     with st.expander("Расширенные", expanded=False):
         debug_mode = st.checkbox("Debug-режим", value=False,
@@ -484,6 +525,15 @@ if generate_btn:
         st.error(f"Ошибка в Excel-файле:\n\n{e}")
         st.stop()
 
+    source_posts_count = len(posts)
+    period_excluded = []
+    period_warnings = []
+    if filter_period:
+        posts, period_excluded, period_warnings = filter_posts_by_period(posts, digest_date)
+    if not posts:
+        st.error("В выбранном 14-дневном периоде не осталось постов. Проверьте даты или отключите фильтр.")
+        st.stop()
+
     if uploaded_images:
         images_dir = _save_uploaded_images(uploaded_images)
     else:
@@ -498,7 +548,7 @@ if generate_btn:
         if f.is_file() and f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
     ])
 
-    all_warnings = excel_warnings + image_warnings
+    all_warnings = excel_warnings + period_warnings + image_warnings
     if all_warnings:
         with st.expander(f"Предупреждения ({len(all_warnings)})", expanded=True):
             for w in all_warnings:
@@ -507,6 +557,20 @@ if generate_btn:
     progress_widget = st.progress(0, text="Подготовка...")
     try:
         draft = build_digest_draft(posts, progress=_progress_callback(progress_widget))
+        if period_excluded:
+            period_rows = [
+                {
+                    "post_id": None,
+                    "title": item.get("title") or f"Строка {item.get('row_idx', '—')}",
+                    "rubric": "ВНЕ ПЕРИОДА",
+                    "importance": "—",
+                    "reason": item.get("exclude_reason") or "Вне 14-дневного периода",
+                }
+                for item in period_excluded
+            ]
+            draft["excluded"] = period_rows + (draft.get("excluded") or [])
+        draft.setdefault("_stats", {})["input_posts"] = source_posts_count
+        draft["_stats"]["excluded_posts"] = len(draft.get("excluded") or [])
         st.session_state.draft = draft
         st.session_state.generation_done = True
         progress_widget.progress(1.0, text="Готово!")
@@ -534,7 +598,7 @@ if not draft:
     <div class="landing-hero">
         <div class="landing-icon">📰</div>
         <div class="landing-title">Конструктор дайджеста КОС</div>
-        <div class="landing-subtitle">Автоматическая сборка корпоративного дайджеста с помощью AI</div>
+        <div class="landing-subtitle">AI готовит черновик, редакторские правила проверяют рубрики и факты</div>
         <div class="landing-steps">
             <div class="landing-step-card">
                 <div class="landing-step-num">1</div>
@@ -544,7 +608,7 @@ if not draft:
             <div class="landing-step-card">
                 <div class="landing-step-num">2</div>
                 <div class="landing-step-label">Сгенерируйте</div>
-                <div class="landing-step-desc">AI классифицирует, отберёт главные и перепишет</div>
+                <div class="landing-step-desc">AI предлагает структуру, правила проверяют отбор и формулировки</div>
             </div>
             <div class="landing-step-card">
                 <div class="landing-step-num">3</div>
@@ -570,7 +634,6 @@ if not draft:
         <tr><td><code>title</code></td><td>Заголовок поста</td><td>Нет</td><td>Дефекты в полиэтилене</td></tr>
         <tr><td><code>link</code></td><td>Ссылка на портал</td><td>Нет</td><td>https://social.sibur.ru/...</td></tr>
         <tr><td><code>image_file</code></td><td>Имя файла фото</td><td>Нет</td><td>PHOTO-12345.jpg</td></tr>
-        <tr><td><code>rubric</code></td><td>Рубрика вручную, если нужна точная привязка</td><td>Нет</td><td>ПСС</td></tr>
     </table>
     """, unsafe_allow_html=True)
     st.stop()
@@ -587,38 +650,50 @@ card_count = sum(len(r.get("cards", [])) for r in draft.get("rubrics", []))
 stats = draft.get("_stats", {})
 input_posts = stats.get("input_posts", "—")
 placed_posts = stats.get("placed_posts", "—")
-
 excluded_posts = stats.get("excluded_posts", 0)
+quality_flags = stats.get("quality_flags", 0)
 
 stat_cols = st.columns(6)
 stat_cols[0].metric("Постов на входе", input_posts)
-stat_cols[1].metric("Отфильтровано", excluded_posts)
-stat_cols[2].metric("Размещено", placed_posts)
+stat_cols[1].metric("Отобрано", placed_posts)
+stat_cols[2].metric("Исключено", excluded_posts)
 stat_cols[3].metric("Главных", main_count)
 stat_cols[4].metric("Рубрик", rubric_count)
 stat_cols[5].metric("Карточек", card_count)
 
-routing_rows = draft.get("_routing", [])
-if routing_rows:
-    with st.expander("Проверка распределения по рубрикам", expanded=False, icon="🔎"):
-        st.dataframe(
-            routing_rows,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "post_id": st.column_config.NumberColumn("ID", width="small"),
-                "title": st.column_config.TextColumn("Исходный заголовок", width="large"),
-                "rubric": st.column_config.TextColumn("Рубрика / блок", width="medium"),
-                "confidence": st.column_config.NumberColumn("Уверенность", format="%.0f%%"),
-                "note": st.column_config.TextColumn("Пояснение", width="large"),
-            },
-        )
+if quality_flags:
+    st.info(
+        f"Автопроверка исправила потенциально неточные или шаблонные фрагменты: {quality_flags}. "
+        "Исходник доступен в редакторе каждой карточки."
+    )
 
 # ── Предупреждения ────────────────────────────────────────────
 if draft.get("warnings"):
     with st.expander(f"Предупреждения ({len(draft['warnings'])})", expanded=False, icon="⚠️"):
         for w in draft["warnings"]:
             st.warning(w)
+
+if draft.get("excluded"):
+    with st.expander(
+        f"Не вошли в дайджест ({len(draft['excluded'])})",
+        expanded=False,
+        icon="🗂️",
+    ):
+        st.caption("Посты исключены по периоду, как дубли, слабые анонсы или менее значимые материалы переполненной рубрики.")
+        st.dataframe(
+            [
+                {
+                    "Пост": item.get("post_id") or "—",
+                    "Заголовок": item.get("title", ""),
+                    "Рубрика": item.get("rubric", ""),
+                    "Важность": item.get("importance", ""),
+                    "Причина": item.get("reason", ""),
+                }
+                for item in draft["excluded"]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
 # ── Тема письма ───────────────────────────────────────────────
 st.markdown('<div class="rubric-section"><div class="rubric-section-title">Тема письма</div></div>',
@@ -661,6 +736,7 @@ else:
                 </div>
             </div>""", unsafe_allow_html=True)
             with st.expander("Редактировать", icon="✏️"):
+                _show_source(draft, item.get("post_id"), f"main_{idx}", item.get("quality_flags"))
                 new_title = st.text_area("Заголовок", value=item["title"], key=f"main_title_{idx}")
                 new_image = _photo_selector("Фото", item.get("image_file", ""), key=f"main_image_{idx}")
                 new_link = st.text_input("Ссылка", value=item.get("link", ""), key=f"main_link_{idx}")
@@ -688,6 +764,7 @@ if fig:
         <div class="figure-desc">{desc_esc}</div>
     </div>""", unsafe_allow_html=True)
     with st.expander("Редактировать", icon="✏️"):
+        _show_source(draft, fig.get("post_id"), "figure", fig.get("quality_flags"))
         new_val = st.text_input("Значение", value=fig["value"], key="fig_val")
         new_desc = st.text_area("Описание", value=fig["description"], key="fig_desc")
         new_fig_link = st.text_input("Ссылка", value=fig.get("link", ""), key="fig_link")
@@ -727,6 +804,7 @@ if mv:
         <div class="kos-card-meta"><span>Обложка: {img_esc}</span></div>
     </div>""", unsafe_allow_html=True)
     with st.expander("Редактировать", icon="✏️"):
+        _show_source(draft, mv.get("post_id"), "video", mv.get("quality_flags"))
         new_title = st.text_input("Заголовок", value=mv["title"], key="video_title")
         new_text = st.text_area("Описание", value=mv["text"], key="video_text")
         new_image = _photo_selector("Обложка", mv.get("image_file", ""), key="video_image")
@@ -763,6 +841,7 @@ if mq and mq.get("text"):
         <div class="kos-card-meta" style="margin-top:12px"><span>Рубрика: {rubric_esc}</span></div>
     </div>""", unsafe_allow_html=True)
     with st.expander("Редактировать", icon="✏️"):
+        _show_source(draft, mq.get("post_id"), "quote", mq.get("quality_flags"))
         new_text = st.text_area("Текст цитаты", value=mq["text"], key="q_text")
         new_name = st.text_input("Автор", value=mq.get("author_name", ""), key="q_name")
         new_role = st.text_input("Должность", value=mq.get("author_role", ""), key="q_role")
@@ -862,6 +941,12 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
         </div>""", unsafe_allow_html=True)
 
         with st.expander("Редактировать", icon="✏️"):
+            _show_source(
+                draft,
+                card.get("post_id"),
+                f"card_{r_idx}_{c_idx}",
+                card.get("quality_flags"),
+            )
             new_title = st.text_input("Заголовок (КАПСОМ)", value=card["title"],
                                        key=f"c_t_{r_idx}_{c_idx}")
             new_text = st.text_area("Текст", value=card["text"],
