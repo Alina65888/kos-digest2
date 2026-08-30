@@ -3,7 +3,7 @@ from unittest.mock import patch
 from pathlib import Path
 import tempfile
 
-from src.pipeline import build_digest_draft
+from src.pipeline import build_digest_draft, regenerate_card_headline
 from src.templater import build_html
 
 
@@ -51,6 +51,39 @@ def classified_from(posts, rubrics=None, importances=None):
 
 
 class PipelineSelectionTests(unittest.TestCase):
+    def test_headline_regeneration_preserves_existing_lead(self):
+        draft = {
+            "_classified": [
+                {
+                    "post_id": 1,
+                    "title": "Ремонт установки",
+                    "text": "Специалисты завершили ремонт установки.",
+                }
+            ],
+            "rubrics": [
+                {
+                    "name": "ПРОИЗВОДСТВО",
+                    "cards": [
+                        {
+                            "post_id": 1,
+                            "position": 1,
+                            "title": "СТАРЫЙ ЗАГОЛОВОК",
+                            "text": "Согласованная подводка остается без изменений.",
+                        }
+                    ],
+                }
+            ],
+        }
+        with patch(
+            "src.pipeline.rewrite_card",
+            return_value={"title": "РЕМОНТ УСТАНОВКИ ЗАВЕРШЕН", "_quality_flags": []},
+        ) as rewrite:
+            card = regenerate_card_headline(draft, 0, 0)
+
+        self.assertEqual(card["title"], "РЕМОНТ УСТАНОВКИ ЗАВЕРШЕН")
+        self.assertEqual(card["text"], "Согласованная подводка остается без изменений.")
+        self.assertTrue(rewrite.call_args.args[1]["title_only"])
+
     def test_quote_can_be_the_only_item_in_its_rubric(self):
         draft = {
             "subject_topics": ["испытания"],

@@ -17,6 +17,10 @@ from .config import (
     CARD_TEXT_MAX_CHARS,
     VIDEO_TEXT_MIN_CHARS,
     RICH_SOURCE_MIN_CHARS,
+    HEADLINE_MIN_WORDS,
+    HEADLINE_MAX_WORDS,
+    MAIN_HEADLINE_MAX_WORDS,
+    HEADLINE_CANDIDATE_COUNT,
 )
 
 
@@ -93,6 +97,113 @@ FORBIDDEN_CLICHES = (
     "главное — не останавливаться", "впереди еще много работы",
     "впереди ещё много работы", "настоящий праздник",
     "незабываемые эмоции", "вместе мы можем больше",
+)
+
+# Заголовки из этого списка могут подойти почти к любой корпоративной новости.
+# Они не становятся сильнее от КАПСА и не сообщают читателю, что произошло.
+WEAK_HEADLINE_PHRASES = (
+    "важный шаг", "новый уровень", "в центре внимания", "движение вперед",
+    "движение вперёд", "шаг в будущее", "путь к успеху", "время перемен",
+    "сила команды", "вместе к успеху", "работа продолжается",
+    "итоги подведены", "курс на развитие", "новые горизонты",
+    "больше чем", "больше, чем", "мы снова доказали", "все только начинается",
+    "всё только начинается", "будущее начинается", "территория возможностей",
+    "в фокусе", "главное о важном", "есть чем гордиться",
+)
+
+WEAK_HEADLINE_WORDS = {
+    "важный", "важная", "важные", "уникальный", "уникальная", "яркий",
+    "яркая", "успешный", "успешная", "эффективный", "эффективная",
+    "масштабный", "масштабная", "значимый", "значимая", "новый", "новая",
+}
+
+HEADLINE_ACTION_ENDINGS = (
+    "ли", "ла", "ло", "ет", "ют", "ит", "ат", "ят", "ен", "ена", "ены",
+)
+
+# Слова результата особенно опасны: одна смена времени превращает
+# «планируют запустить» в ложное «запустили». Для таких формулировок одного
+# лексического пересечения недостаточно – в источнике тоже нужен завершенный
+# статус из той же группы.
+HEADLINE_STATUS_GROUPS = (
+    (
+        {"запущен", "запущена", "запущено", "запущены", "запустили", "заработал", "заработала"},
+        {"запущен", "запущена", "запущено", "запущены", "запустили", "заработал", "заработала"},
+    ),
+    (
+        {"завершен", "завершена", "завершено", "завершены", "завершили", "закончили"},
+        {"завершен", "завершена", "завершено", "завершены", "завершили", "закончили"},
+    ),
+    (
+        {"внедрен", "внедрена", "внедрено", "внедрены", "внедрили"},
+        {"внедрен", "внедрена", "внедрено", "внедрены", "внедрили"},
+    ),
+    (
+        {"открыт", "открыта", "открыто", "открыты", "открыли"},
+        {"открыт", "открыта", "открыто", "открыты", "открыли"},
+    ),
+    (
+        {"исправлен", "исправлена", "исправлено", "исправлены", "исправили", "устранили"},
+        {"исправлен", "исправлена", "исправлено", "исправлены", "исправили", "устранили"},
+    ),
+    (
+        {"снизили", "снижен", "снижена", "снижено", "снижены"},
+        {"снизили", "снижен", "снижена", "снижено", "снижены"},
+    ),
+    (
+        {"повысили", "повышен", "повышена", "повышено", "повышены"},
+        {"повысили", "повышен", "повышена", "повышено", "повышены"},
+    ),
+    (
+        {"пройден", "пройдена", "пройдено", "пройдены", "прошел", "прошла", "прошло", "прошли"},
+        {"пройден", "пройдена", "пройдено", "пройдены", "прошел", "прошла", "прошло", "прошли"},
+    ),
+    (
+        {"заменили", "заменен", "заменена", "заменено", "заменены"},
+        {"заменили", "заменен", "заменена", "заменено", "заменены"},
+    ),
+    (
+        {"установили", "установлен", "установлена", "установлено", "установлены"},
+        {"установили", "установлен", "установлена", "установлено", "установлены"},
+    ),
+    (
+        {"получили", "получен", "получена", "получено", "получены"},
+        {"получили", "получен", "получена", "получено", "получены"},
+    ),
+    (
+        {"отремонтировали", "отремонтирован", "отремонтирована", "отремонтировано", "отремонтированы"},
+        {"отремонтировали", "отремонтирован", "отремонтирована", "отремонтировано", "отремонтированы"},
+    ),
+    (
+        {"провели", "проведен", "проведена", "проведено", "проведены"},
+        {"провели", "проведен", "проведена", "проведено", "проведены"},
+    ),
+    (
+        {"создали", "создан", "создана", "создано", "созданы"},
+        {"создали", "создан", "создана", "создано", "созданы"},
+    ),
+    (
+        {"разработали", "разработан", "разработана", "разработано", "разработаны"},
+        {"разработали", "разработан", "разработана", "разработано", "разработаны"},
+    ),
+    (
+        {"обновили", "обновлен", "обновлена", "обновлено", "обновлены"},
+        {"обновили", "обновлен", "обновлена", "обновлено", "обновлены"},
+    ),
+    (
+        {"восстановили", "восстановлен", "восстановлена", "восстановлено", "восстановлены"},
+        {"восстановили", "восстановлен", "восстановлена", "восстановлено", "восстановлены"},
+    ),
+)
+
+HEADLINE_EXACT_SUPPORT_TERMS = {
+    "серебро", "золото", "бронза", "рекорд", "прорыв",
+    "сенсация", "победа", "победили", "успешно",
+}
+
+HEADLINE_EXACT_SUPPORT_PHRASES = (
+    "без потерь", "без ошибок", "без сбоев", "раньше срока",
+    "досрочно", "впервые", "лучший результат",
 )
 
 NUMBER_RE = re.compile(r"(?<![\w])\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?", re.UNICODE)
@@ -359,12 +470,155 @@ def _plain_text(value: Any) -> str:
 
 def _fallback_title(post: Dict[str, Any], uppercase: bool) -> str:
     title = re.sub(r"\s+", " ", str(post.get("title") or "")).strip(" .")
-    if not title:
+    if not title or _headline_is_weak(title):
         title = extractive_summary(post, 90).split(".", 1)[0].strip()
     words = title.split()
-    if len(words) > 9:
-        title = " ".join(words[:9]).rstrip(".,;:–—-")
+    max_words = HEADLINE_MAX_WORDS if uppercase else MAIN_HEADLINE_MAX_WORDS
+    if len(words) > max_words:
+        title = " ".join(words[:max_words]).rstrip(".,;:–—-")
+    title = _clean_headline(title)
     return title.upper() if uppercase else title[:1].upper() + title[1:]
+
+
+def _clean_headline(value: Any) -> str:
+    """Приводит вариант заголовка к фирменной типографике без переписывания."""
+    title = re.sub(r"\s+", " ", _plain_text(value)).strip()
+    title = title.replace("ё", "е").replace("Ё", "Е").replace("—", "–")
+    title = re.sub(r"\s+[-–]\s+", " – ", title)
+    title = title.strip(" \t\r\n.,:;–—-")
+    return title
+
+
+def _headline_words(value: Any) -> List[str]:
+    return re.findall(r"[A-Za-zА-Яа-я0-9Ёё-]+", str(value or ""))
+
+
+def _headline_is_weak(title: str) -> bool:
+    normalized = _norm(title).strip(" .,!?:;–—-")
+    if any(phrase in normalized for phrase in WEAK_HEADLINE_PHRASES):
+        return True
+    words = [word.lower().replace("ё", "е") for word in _headline_words(title)]
+    meaningful = [word for word in words if len(word) >= 4]
+    return bool(meaningful) and all(word in WEAK_HEADLINE_WORDS for word in meaningful)
+
+
+def _headline_claims_are_supported(title: str, post: Dict[str, Any]) -> bool:
+    candidate_norm = _norm(title)
+    source_norm = _norm(source_blob(post))
+    candidate_words = set(re.findall(r"[a-zа-я0-9-]+", candidate_norm))
+    source_words = set(re.findall(r"[a-zа-я0-9-]+", source_norm))
+
+    for candidate_group, source_group in HEADLINE_STATUS_GROUPS:
+        if candidate_words & candidate_group and not source_words & source_group:
+            return False
+    for term in candidate_words & HEADLINE_EXACT_SUPPORT_TERMS:
+        if term not in source_words:
+            return False
+    for phrase in HEADLINE_EXACT_SUPPORT_PHRASES:
+        if phrase in candidate_norm and phrase not in source_norm:
+            return False
+    return True
+
+
+def _headline_is_valid(title: str, post: Dict[str, Any], is_main: bool) -> bool:
+    words = _headline_words(title)
+    max_words = MAIN_HEADLINE_MAX_WORDS if is_main else HEADLINE_MAX_WORDS
+    source_title = str(post.get("title") or "")
+    return bool(
+        title
+        and HEADLINE_MIN_WORDS <= len(words) <= max_words
+        and len(title) <= 90
+        and has_only_source_numbers(title, post)
+        and has_reasonable_source_overlap(title, post, minimum=0.3)
+        and _headline_claims_are_supported(title, post)
+        and not _headline_is_weak(title)
+        and not ("?" in title and "?" not in source_title)
+        and "!!" not in title
+        and "?!" not in title
+        and "!?" not in title
+    )
+
+
+def _headline_score(title: str, post: Dict[str, Any], candidate_index: int) -> float:
+    """Ранжирует только уже проверенные варианты, не решая за модель факты."""
+    words = [word.lower().replace("ё", "е") for word in _headline_words(title)]
+    content_words = [
+        word for word in words
+        if len(word) >= 4 and word not in CONTENT_STOPWORDS
+    ]
+    source_tokens = re.findall(r"[a-zа-я0-9-]+", _norm(source_blob(post)))
+    source_stems = {token[:5] for token in source_tokens if len(token) >= 4}
+    supported_specific = sum(
+        1 for word in content_words
+        if word[:5] in source_stems and word not in WEAK_HEADLINE_WORDS
+    )
+
+    score = min(supported_specific, 3) * 0.8
+    if 3 <= len(words) <= 6:
+        score += 3.0
+    elif len(words) == 2:
+        score += 2.0
+    elif len(words) == 7:
+        score += 1.0
+    if len(set(words)) == len(words):
+        score += 0.5
+    if any(word.endswith(HEADLINE_ACTION_ENDINGS) for word in words if len(word) >= 5):
+        score += 0.75
+    if number_tokens(title):
+        score += 0.5
+    score -= sum(1.25 for word in words if word in WEAK_HEADLINE_WORDS)
+    score -= title.count(":") * 0.5
+    score -= candidate_index * 0.15
+    return score
+
+
+def construct_headline(
+    post: Dict[str, Any],
+    context: Dict[str, Any],
+    raw: Dict[str, Any],
+) -> Tuple[str, bool]:
+    """Выбирает сильнейший фактический заголовок из вариантов модели.
+
+    Возвращает пару ``(title, used_fallback)``. Модель отвечает за редакторскую
+    идею, а код – за длину, числа, связь с исходником и антиштампы.
+    """
+    is_main = bool(context.get("is_main_block"))
+    uppercase = not is_main
+    candidate_values: List[Any] = [raw.get("title")]
+    raw_candidates = raw.get("title_candidates")
+    if isinstance(raw_candidates, list):
+        for item in raw_candidates[:HEADLINE_CANDIDATE_COUNT]:
+            if isinstance(item, dict):
+                candidate_values.append(item.get("title"))
+            else:
+                candidate_values.append(item)
+
+    candidates: List[str] = []
+    seen = set()
+    for value in candidate_values:
+        title = _clean_headline(value)
+        key = _norm(title)
+        if title and key not in seen:
+            candidates.append(title)
+            seen.add(key)
+
+    valid = [
+        (title, index)
+        for index, title in enumerate(candidates)
+        if _headline_is_valid(title, post, is_main)
+    ]
+    if valid:
+        title, _ = max(
+            valid,
+            key=lambda item: _headline_score(item[0], post, item[1]),
+        )
+        if uppercase:
+            title = title.upper()
+        else:
+            title = title[:1].upper() + title[1:]
+        return title, False
+
+    return _fallback_title(post, uppercase=uppercase), True
 
 
 def sanitize_card_text(value: Any, fallback_link: str) -> str:
@@ -424,24 +678,13 @@ def validate_rewrite_output(
         return {"quote_text": quote, "author_name": name, "author_role": role}, flags
 
     is_main = bool(context.get("is_main_block"))
-    title = _plain_text(raw.get("title")).strip()
-    title_words = re.findall(r"[A-Za-zА-Яа-я0-9Ёё-]+", title)
-    title_is_bad = (
-        not title
-        or not (2 <= len(title_words) <= (11 if is_main else 9))
-        or not has_only_source_numbers(title, post)
-        or not has_reasonable_source_overlap(title, post, minimum=0.3)
-        or ("?" in title and "?" not in str(post.get("title") or ""))
-    )
-    if title_is_bad:
-        title = _fallback_title(post, uppercase=not is_main)
+    title, used_title_fallback = construct_headline(post, context, raw)
+    if used_title_fallback:
         flags.append("Заголовок заменен на фактический")
-    elif not is_main:
-        title = title.upper()
 
     # Главный блок содержит только заголовок. Отсутствие поля text в ответе
     # модели здесь штатно и не должно давать ложный флаг качества.
-    if is_main:
+    if is_main or context.get("title_only"):
         return {"title": title}, flags
 
     text = str(raw.get("text") or "").strip()

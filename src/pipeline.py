@@ -705,4 +705,34 @@ def regenerate_single_card(
     rewritten = rewrite_card(post, context)
     card["title"] = rewritten.get("title", card["title"])
     card["text"] = rewritten.get("text", card["text"])
+    card["quality_flags"] = rewritten.get("_quality_flags", [])
+    return card
+
+
+def regenerate_card_headline(
+    draft: Dict[str, Any],
+    rubric_idx: int,
+    card_idx: int,
+) -> Dict[str, Any]:
+    """Конструирует новый заголовок, не меняя уже согласованную подводку."""
+    classified = draft.get("_classified", [])
+    by_id = {p["post_id"]: p for p in classified}
+
+    rubric = draft["rubrics"][rubric_idx]
+    card = rubric["cards"][card_idx]
+    pid = card["post_id"]
+    post = by_id.get(pid)
+    if not post:
+        raise ValueError(f"Пост #{pid} не найден")
+
+    import time
+    context = {
+        "rubric": rubric["name"],
+        "position_in_rubric": card["position"],
+        "title_only": True,
+        "_seed": time.time_ns(),
+    }
+    rewritten = rewrite_card(post, context)
+    card["title"] = rewritten.get("title", card["title"])
+    card["quality_flags"] = rewritten.get("_quality_flags", [])
     return card

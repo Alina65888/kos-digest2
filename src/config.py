@@ -43,6 +43,15 @@ CARD_TEXT_MAX_CHARS = 520
 VIDEO_TEXT_MIN_CHARS = 120
 RICH_SOURCE_MIN_CHARS = 220
 
+# === ЗАГОЛОВКИ ===
+# Модель предлагает несколько заголовков с разными редакторскими приемами,
+# после чего код оставляет только фактически подтвержденные варианты и
+# выбирает самый конкретный. Это дает вариативность без кликбейта.
+HEADLINE_CANDIDATE_COUNT = 5
+HEADLINE_MIN_WORDS = 2
+HEADLINE_MAX_WORDS = 8
+MAIN_HEADLINE_MAX_WORDS = 10
+
 # === КАНОНИЧЕСКИЙ ПОРЯДОК РУБРИК ===
 CANONICAL_RUBRIC_ORDER = [
     "ПРОИЗВОДСТВО",

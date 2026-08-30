@@ -144,6 +144,68 @@ class EditorialRulesTests(unittest.TestCase):
         self.assertEqual(result, {"title": "Серебро команды"})
         self.assertEqual(flags, [])
 
+    def test_headline_constructor_chooses_concrete_candidate(self):
+        post = self._post(
+            "Ремонт установки",
+            (
+                "Во время ремонта установки специалисты заменили 12 изношенных узлов. "
+                "Оборудование вернули в работу по утвержденному графику."
+            ),
+        )
+        result, flags = validate_rewrite_output(
+            post,
+            {"rubric": "ПРОИЗВОДСТВО"},
+            {
+                "title": "ВАЖНЫЙ ШАГ ДЛЯ ПРОИЗВОДСТВА",
+                "title_candidates": [
+                    "НОВЫЙ УРОВЕНЬ РЕМОНТА",
+                    "18 УЗЛОВ ЗАМЕНИЛИ ЗА РЕМОНТ",
+                    "12 УЗЛОВ ЗАМЕНИЛИ ЗА РЕМОНТ",
+                    "КОМАНДА СНОВА ДОКАЗАЛА МАСТЕРСТВО",
+                ],
+                "text": post["text"],
+            },
+        )
+        self.assertEqual(result["title"], "12 УЗЛОВ ЗАМЕНИЛИ ЗА РЕМОНТ")
+        self.assertFalse(any("Заголовок заменен" in flag for flag in flags))
+
+    def test_headline_does_not_turn_a_plan_into_a_completed_result(self):
+        post = self._post(
+            "Испытания компрессора",
+            (
+                "Команда продолжает испытания компрессора. "
+                "Компрессор планируют запустить в сентябре."
+            ),
+        )
+        result, _ = validate_rewrite_output(
+            post,
+            {"rubric": "ПРОИЗВОДСТВО", "title_only": True},
+            {
+                "title": "КОМПРЕССОР ЗАПУЩЕН В СЕНТЯБРЕ",
+                "title_candidates": [
+                    "ИСПЫТАНИЯ КОМПРЕССОРА ПРОДОЛЖАЮТСЯ",
+                    "КОМПРЕССОР ЗАПУЩЕН ПОСЛЕ ИСПЫТАНИЙ",
+                ],
+            },
+        )
+        self.assertEqual(result, {"title": "ИСПЫТАНИЯ КОМПРЕССОРА ПРОДОЛЖАЮТСЯ"})
+
+    def test_headline_constructor_rejects_generic_candidates(self):
+        post = self._post(
+            "Обучение операторов",
+            "Операторы прошли обучение работе на новой панели управления.",
+        )
+        result, flags = validate_rewrite_output(
+            post,
+            {"rubric": "КАРЬЕРА", "title_only": True},
+            {
+                "title": "НОВЫЙ УРОВЕНЬ",
+                "title_candidates": ["ВАЖНЫЙ ШАГ", "В ЦЕНТРЕ ВНИМАНИЯ"],
+            },
+        )
+        self.assertEqual(result, {"title": "ОБУЧЕНИЕ ОПЕРАТОРОВ"})
+        self.assertTrue(any("Заголовок заменен" in flag for flag in flags))
+
     def test_period_filter_is_inclusive_and_keeps_undated_rows(self):
         posts = [
             {"row_idx": 2, "date": "2026-08-17", "title": "Граница", "text": "Текст"},
