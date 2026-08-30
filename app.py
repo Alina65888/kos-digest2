@@ -435,7 +435,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.2 &middot; Редакторская проверка</div>
+    <div class="sidebar-version">v2.3 &middot; Развернутые подводки</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
