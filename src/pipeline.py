@@ -250,6 +250,8 @@ def _fallback_title(post: Dict[str, Any]) -> str:
     if len(words) == 1:
         extra = _WORD_RE.findall(_plain_text(post.get("text")))
         words = (words + [w for w in extra if w.lower() != words[0].lower()])[:2]
+    if len(words) < CARD_TITLE_MIN_WORDS:
+        words.append("КОС")
     return " ".join(words[:CARD_TITLE_MAX_WORDS]).upper()
 
 

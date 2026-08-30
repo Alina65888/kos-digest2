@@ -127,6 +127,10 @@ class EditorialSafetyTests(unittest.TestCase):
             "В лаборатории установили новый анализатор.",
         )
 
+    def test_fallback_title_keeps_two_word_minimum(self):
+        post = {"title": "Ремонт", "text": "Ремонт."}
+        self.assertEqual(len(_safe_title("", post).split()), 2)
+
     def test_quote_must_be_verbatim(self):
         exact = {
             "text": "Иван сказал: «Работу продолжим в сентябре».",
