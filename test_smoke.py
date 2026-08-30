@@ -35,7 +35,6 @@ def test_kos_digest():
             {"post_id": 1, "title": "Главная новость 1", "image_file": sample_imgs[0]},
             {"post_id": 2, "title": "Главная новость 2", "image_file": sample_imgs[1]},
             {"post_id": 3, "title": "Главная новость 3", "image_file": sample_imgs[2]},
-            {"post_id": 4, "title": "Главная новость 4", "image_file": sample_imgs[3]},
         ],
         "main_figure": {"value": "273", "description": "сотрудника сдали ЕКЭ 2026 года"},
         "main_video": {

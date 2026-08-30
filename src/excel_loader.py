@@ -51,6 +51,7 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         "имя файла фото": "image_file",
         "автор поста": "author",
         "заголовок поста": "title",
+        "рубрика": "rubric",
     }
     df.columns = [COLUMN_ALIASES.get(c, c) for c in df.columns]
 
@@ -98,6 +99,7 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
             "text": str(row.get("text", "")).strip(),
             "link": str(row.get("link", "")).strip(),
             "image_file": str(row.get("image_file", "")).strip(),
+            "rubric": str(row.get("rubric", "")).strip(),
         }
         # Пустые тексты — пропускаем с предупреждением
         if not post["text"]:

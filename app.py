@@ -400,7 +400,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.1 &middot; Веб-конструктор</div>
+    <div class="sidebar-version">v2.2 &middot; Точная редактура</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
@@ -412,7 +412,7 @@ with st.sidebar:
     uploaded_xlsx = st.file_uploader(
         "Excel с постами",
         type=["xlsx"],
-        help="Файл .xlsx с колонками: date, author, title, text, link, image_file",
+        help="Файл .xlsx с колонками: date, author, title, text, link, image_file, rubric",
     )
 
     uploaded_images = st.file_uploader(
@@ -570,6 +570,7 @@ if not draft:
         <tr><td><code>title</code></td><td>Заголовок поста</td><td>Нет</td><td>Дефекты в полиэтилене</td></tr>
         <tr><td><code>link</code></td><td>Ссылка на портал</td><td>Нет</td><td>https://social.sibur.ru/...</td></tr>
         <tr><td><code>image_file</code></td><td>Имя файла фото</td><td>Нет</td><td>PHOTO-12345.jpg</td></tr>
+        <tr><td><code>rubric</code></td><td>Рубрика вручную, если нужна точная привязка</td><td>Нет</td><td>ПСС</td></tr>
     </table>
     """, unsafe_allow_html=True)
     st.stop()
@@ -587,12 +588,31 @@ stats = draft.get("_stats", {})
 input_posts = stats.get("input_posts", "—")
 placed_posts = stats.get("placed_posts", "—")
 
-stat_cols = st.columns(5)
+excluded_posts = stats.get("excluded_posts", 0)
+
+stat_cols = st.columns(6)
 stat_cols[0].metric("Постов на входе", input_posts)
-stat_cols[1].metric("Размещено", placed_posts)
-stat_cols[2].metric("Главных", main_count)
-stat_cols[3].metric("Рубрик", rubric_count)
-stat_cols[4].metric("Карточек", card_count)
+stat_cols[1].metric("Отфильтровано", excluded_posts)
+stat_cols[2].metric("Размещено", placed_posts)
+stat_cols[3].metric("Главных", main_count)
+stat_cols[4].metric("Рубрик", rubric_count)
+stat_cols[5].metric("Карточек", card_count)
+
+routing_rows = draft.get("_routing", [])
+if routing_rows:
+    with st.expander("Проверка распределения по рубрикам", expanded=False, icon="🔎"):
+        st.dataframe(
+            routing_rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "post_id": st.column_config.NumberColumn("ID", width="small"),
+                "title": st.column_config.TextColumn("Исходный заголовок", width="large"),
+                "rubric": st.column_config.TextColumn("Рубрика / блок", width="medium"),
+                "confidence": st.column_config.NumberColumn("Уверенность", format="%.0f%%"),
+                "note": st.column_config.TextColumn("Пояснение", width="large"),
+            },
+        )
 
 # ── Предупреждения ────────────────────────────────────────────
 if draft.get("warnings"):
