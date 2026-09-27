@@ -29,7 +29,7 @@ from src.pipeline import (
     regenerate_single_card,
 )
 from src.templater import build_html
-from src.llm_client import clear_cache
+from src.llm_client import clear_cache, get_model_settings
 from src.ui_helpers import esc as _esc
 import src.appointments_ui as appointments_ui
 
@@ -473,7 +473,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.5 &middot; Редактор дайджеста</div>
+    <div class="sidebar-version">v2.5.1 &middot; Редактор дайджеста</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
@@ -500,6 +500,17 @@ with st.sidebar:
     digest_date = st.date_input("Дата выпуска", value=datetime.now())
 
     st.markdown("### Параметры")
+
+    model_settings_valid = True
+    try:
+        model_settings = get_model_settings()
+        model_label = f"Модель: {model_settings['model']}"
+        if model_settings.get("reasoning_effort"):
+            model_label += f" · рассуждение: {model_settings['reasoning_effort']}"
+        st.caption(model_label)
+    except ValueError as exc:
+        model_settings_valid = False
+        st.error(str(exc))
 
     use_cache = st.checkbox("Кэш LLM-запросов", value=True,
                             help="Повторные запросы на тех же данных бесплатны")
@@ -566,7 +577,7 @@ with st.sidebar:
         "Сгенерировать дайджест",
         type="primary",
         use_container_width=True,
-        disabled=not source_posts,
+        disabled=not source_posts or not model_settings_valid,
     )
 
 

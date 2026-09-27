@@ -52,14 +52,49 @@ def _get_client() -> OpenAI:
 
 
 def _get_model() -> str:
-    return _get_secret("OPENAI_MODEL") or "gpt-4o"
+    return str(_get_secret("OPENAI_MODEL") or "gpt-4o").strip() or "gpt-4o"
+
+
+def get_model_settings() -> Dict[str, str]:
+    """Публичные настройки модели без ключа и адреса подключения."""
+    model = _get_model()
+    settings = {"model": model}
+    family = re.fullmatch(r"gpt-6-(astra|sol|luna)(?:-\d{4}-\d{2}-\d{2})?", model)
+    if family:
+        effort = str(_get_secret("OPENAI_REASONING_EFFORT") or "high").strip().lower()
+        allowed = {"low", "medium", "high", "xhigh", "max"}
+        if family.group(1) != "astra":
+            allowed.add("none")
+        if effort not in allowed:
+            raise ValueError(
+                f"Для {model} укажите OPENAI_REASONING_EFFORT: "
+                + ", ".join(sorted(allowed))
+                + ". Рекомендуемое значение для дайджеста: high."
+            )
+        settings["reasoning_effort"] = effort
+    return settings
+
+
+def _request_settings(temperature: float) -> Dict[str, Any]:
+    settings = get_model_settings()
+    # GPT-6 с рассуждением не принимает temperature (официальный migration guide).
+    if settings.get("reasoning_effort", "none") == "none":
+        settings["temperature"] = temperature
+    return settings
 
 
 # === Кэш ===
 
-def _cache_key(system_prompt: str, user_payload: str, temperature: float) -> str:
+def _cache_key(system_prompt: str, user_payload: str, temperature: float,
+               request_settings: Optional[Dict[str, Any]] = None) -> str:
     """sha1 от всех ингредиентов запроса — детерминированный ключ кэша"""
-    raw = f"{_get_model()}|{temperature}|{system_prompt}|{user_payload}".encode("utf-8")
+    raw = json.dumps({
+        "version": 2,
+        "api": _get_secret("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+        "settings": request_settings if request_settings is not None else _request_settings(temperature),
+        "system": system_prompt,
+        "user": user_payload,
+    }, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return hashlib.sha1(raw).hexdigest()
 
 
@@ -123,7 +158,8 @@ def llm_json(
 
     label — короткая метка для логов («classify», «plan», «rewrite»).
     """
-    cache_key = _cache_key(system_prompt, user_payload, temperature)
+    request_settings = _request_settings(temperature)
+    cache_key = _cache_key(system_prompt, user_payload, temperature, request_settings)
 
     # Попытка взять из кэша
     if use_cache:
@@ -134,14 +170,17 @@ def llm_json(
 
     # Реальный вызов
     client = _get_client()
-    model = _get_model()
+    request_options = dict(request_settings)
+    effort = request_options.pop("reasoning_effort", None)
+    if effort is not None:
+        # extra_body поддерживается и минимальной версией SDK из requirements.txt.
+        request_options["extra_body"] = {"reasoning_effort": effort}
     last_error = None
 
     for attempt in range(1, LLM_MAX_RETRIES + 1):
         try:
             response = client.chat.completions.create(
-                model=model,
-                temperature=temperature,
+                **request_options,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_payload},
@@ -178,7 +217,8 @@ def llm_json(
         "Проверьте:\n"
         "- Правильность API-ключа (OPENAI_API_KEY)\n"
         "- Доступность API-сервера (OPENAI_BASE_URL)\n"
-        "- Баланс на аккаунте посредника"
+        "- Доступ к выбранной модели (OPENAI_MODEL)\n"
+        "- Баланс и лимиты аккаунта API"
     )
 
 
