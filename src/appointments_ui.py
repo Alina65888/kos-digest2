@@ -55,6 +55,17 @@ def _init_state():
             st.session_state[k] = v
 
 
+def _clear_person_widgets(s_idx=None, p_idx=None):
+    fields = ("name", "pos", "prev", "img", "edu", "career", "msg", "mv")
+    if s_idx is not None:
+        keys = [f"appt_{field}_{s_idx}_{p_idx}" for field in ("edu", "career", "msg")]
+    else:
+        prefixes = tuple(f"appt_{field}_" for field in fields)
+        keys = [key for key in st.session_state if key.startswith(prefixes)]
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
 def _get_images_tmp_dir() -> Path:
     if "appt_images_tmp_dir" not in st.session_state:
         st.session_state.appt_images_tmp_dir = Path(tempfile.mkdtemp(prefix="kos_appt_img_"))
@@ -126,7 +137,7 @@ def render():
             <span class="sidebar-title-icon">🧑‍💼</span>
             <div><h1>Дайджест назначений</h1></div>
         </div>
-        <div class="sidebar-version">v1.0 &middot; Кадровые изменения</div>
+        <div class="sidebar-version">v1.1 &middot; Кадровые изменения</div>
         """, unsafe_allow_html=True)
 
         _mode_switch_button()
@@ -233,6 +244,7 @@ def render():
             )
             draft["org_chart_link"] = org_chart_link
             draft["contact_email"] = contact_email
+            _clear_person_widgets()
             st.session_state.appt_draft = draft
             progress_widget.progress(1.0, text="Готово!")
             st.toast("Черновик дайджеста назначений готов!", icon="✅")
@@ -271,6 +283,7 @@ def render():
             <tr><td><code>order</code></td><td>Порядок внутри раздела</td><td>Нет</td><td>1</td></tr>
         </table>
         """, unsafe_allow_html=True)
+        st.caption("Пожелания учитывают новую роль и другие карточки выпуска. В редакторе можно отдельно подобрать другой вариант.")
         st.caption("Пример файла: sample_input/appointments.xlsx")
         st.stop()
 
@@ -353,11 +366,15 @@ def render():
                         st.toast("Сохранено", icon="✅")
                         st.rerun()
                 with col_b:
-                    if st.button("Перегенерировать", key=f"appt_rg_{s_idx}_{p_idx}",
-                                 use_container_width=True, help="AI перепишет текст по заметкам"):
+                    if st.button("Другие пожелания" if section["key"] == "new_challenge" else "Перегенерировать",
+                                 key=f"appt_rg_{s_idx}_{p_idx}", use_container_width=True,
+                                 help="Меняет пожелание, сохраняя информацию о переходе" if section["key"] == "new_challenge" else "AI перепишет текст по заметкам"):
                         try:
                             with st.spinner("Генерирую новый вариант..."):
+                                if section["key"] == "new_challenge":
+                                    person["message"] = new_message
                                 regenerate_single_person(draft, section["key"], p_idx)
+                                _clear_person_widgets(s_idx, p_idx)
                             st.toast("Текст перегенерирован", icon="🎲")
                             st.rerun()
                         except Exception as e:
@@ -369,11 +386,13 @@ def render():
                     if p_idx > 0 and st.button("↑", key=f"appt_up_{s_idx}_{p_idx}",
                                                 use_container_width=True, help="Переместить выше"):
                         people[p_idx], people[p_idx - 1] = people[p_idx - 1], people[p_idx]
+                        _clear_person_widgets()
                         st.rerun()
                 with move_cols[1]:
                     if p_idx < len(people) - 1 and st.button("↓", key=f"appt_dn_{s_idx}_{p_idx}",
                                                                use_container_width=True, help="Переместить ниже"):
                         people[p_idx], people[p_idx + 1] = people[p_idx + 1], people[p_idx]
+                        _clear_person_widgets()
                         st.rerun()
                 with move_cols[2]:
                     target = st.selectbox(
@@ -389,6 +408,7 @@ def render():
                                 if sec["key"] == target:
                                     sec["people"].append(moved)
                                     break
+                            _clear_person_widgets()
                             st.toast(f"Перенесено в {target}", icon="↗️")
                             st.rerun()
 

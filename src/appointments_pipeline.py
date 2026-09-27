@@ -3,8 +3,8 @@
 
 В отличие от src/pipeline.py (classify → plan → rewrite для новостей),
 здесь раздел человека задаётся вручную в Excel (колонка section), а LLM
-только дописывает био/поздравление по коротким заметкам HR — один вызов
-на человека, параллельно, через тот же llm_client.
+дописывает тексты по заметкам HR. Пожелания создаются последовательно,
+с учетом других карточек выпуска и проверкой повторов.
 """
 import json
 import logging
@@ -22,6 +22,8 @@ from .config import (
     REWRITE_TEMPERATURE,
 )
 from .llm_client import llm_json, load_prompt
+from .appointment_wishes import (BRIEFS, plain, split_message, compose_message,
+                                  wish_problem, reserve_wish)
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ def _needs_llm(person: Dict[str, Any]) -> bool:
     return False
 
 
-def write_bio(person: Dict[str, Any], _seed: Optional[int] = None) -> Dict[str, Any]:
+def write_bio(person: Dict[str, Any], _seed: Optional[int] = None, editorial_context=None) -> Dict[str, Any]:
     """Один вызов LLM на человека. _seed ломает кэш при перегенерации."""
     system_prompt = load_prompt(PROMPT_NAME)
     payload = {
@@ -49,6 +51,8 @@ def write_bio(person: Dict[str, Any], _seed: Optional[int] = None) -> Dict[str, 
             "section": person.get("section", ""),
         }
     }
+    if editorial_context is not None:
+        payload["editorial_context"] = editorial_context
     if _seed is not None:
         payload["_seed"] = _seed
     return llm_json(
@@ -57,6 +61,34 @@ def write_bio(person: Dict[str, Any], _seed: Optional[int] = None) -> Dict[str, 
         temperature=REWRITE_TEMPERATURE,
         label=f"appointments[{person.get('section')}]",
     )
+
+
+def write_congratulation(person, used_wishes, warnings, fixed_transition=None, seed=None):
+    """До двух вариантов от LLM; затем неповторяющийся резерв с предупреждением."""
+    context = {"used_wishes": used_wishes, "brief": BRIEFS[len(used_wishes) % len(BRIEFS)]}
+    if fixed_transition is not None:
+        context["fixed_transition"] = fixed_transition
+    transition = fixed_transition or ""
+    reason = ""
+    for attempt in range(2):
+        try:
+            result = write_bio(person, _seed=seed, editorial_context=context)
+            if not isinstance(result, dict):
+                raise ValueError("Ответ должен быть JSON-объектом")
+            if fixed_transition is None:
+                transition = plain(result.get("transition", ""))
+            wish = plain(result.get("wish", ""))
+            reason = wish_problem(wish, used_wishes)
+            if not reason:
+                return compose_message(transition, wish)
+            context.update(previous_wish=wish, revision_reason=reason)
+        except Exception as error:
+            reason = str(error)
+            break
+    wish = reserve_wish(used_wishes)
+    note = "использовано резервное пожелание, проверьте перед отправкой" if wish else "добавьте пожелание вручную: свободные резервные варианты закончились"
+    warnings.append(f"{person.get('name')}: {note} ({reason})")
+    return compose_message(transition, wish)
 
 
 def build_appointments_draft(
@@ -77,7 +109,10 @@ def build_appointments_draft(
     for key in grouped:
         grouped[key].sort(key=lambda p: p.get("order", 0))
 
-    tasks = [p for p in people if _needs_llm(p)]
+    tasks = [p for p in people if _needs_llm(p) and p["section"] != APPOINTMENT_CONGRATS_SECTION]
+    congratulations = grouped.get(APPOINTMENT_CONGRATS_SECTION, [])
+    total = len(tasks) + len(congratulations)
+    done = 0
 
     def _process(person):
         try:
@@ -88,21 +123,30 @@ def build_appointments_draft(
 
     if tasks:
         if progress:
-            progress(0, len(tasks), f"Пишем био 0/{len(tasks)}")
+            progress(0, total, f"Пишем тексты 0/{total}")
         with ThreadPoolExecutor(max_workers=min(LLM_PARALLEL_WORKERS, len(tasks))) as ex:
             futures = [ex.submit(_process, p) for p in tasks]
-            done = 0
             for f in as_completed(futures):
                 person, result, err = f.result()
                 done += 1
                 if progress:
-                    progress(done, len(tasks), f"Пишем био {done}/{len(tasks)}")
+                    progress(done, total, f"Пишем тексты {done}/{total}")
                 if err:
                     warnings.append(f"{person.get('name')}: не удалось сгенерировать текст ({err})")
                     result = {}
                 person["education"] = result.get("education", "")
                 person["career"] = result.get("career", "")
                 person["message"] = result.get("message", "")
+
+    used_wishes = []
+    for person in congratulations:
+        person["message"] = write_congratulation(person, used_wishes, warnings)
+        wish = split_message(person["message"])[1]
+        if wish:
+            used_wishes.append(wish)
+        done += 1
+        if progress:
+            progress(done, total, f"Пишем тексты {done}/{total}")
 
     # Люди без LLM-вызова — пустые текстовые поля по умолчанию
     for p in people:
@@ -148,7 +192,19 @@ def regenerate_single_person(
         raise ValueError(f"Раздел '{section_key}' не найден")
     person = section["people"][person_idx]
 
-    result = write_bio(person, _seed=int(time.time()))
+    if section_key == APPOINTMENT_CONGRATS_SECTION:
+        transition, previous = split_message(person.get("message", ""))
+        used = [split_message(p.get("message", ""))[1]
+                for sec in draft["sections"] if sec["key"] == APPOINTMENT_CONGRATS_SECTION
+                for p in sec.get("people", []) if p is not person and p.get("message")]
+        if previous:
+            used.append(previous)
+        person["message"] = write_congratulation(
+            person, used, draft.setdefault("warnings", []),
+            fixed_transition=transition, seed=time.time_ns())
+        return person
+
+    result = write_bio(person, _seed=time.time_ns())
     person["education"] = result.get("education", person.get("education", ""))
     person["career"] = result.get("career", person.get("career", ""))
     person["message"] = result.get("message", person.get("message", ""))
