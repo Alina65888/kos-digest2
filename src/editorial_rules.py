@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import urlsplit
 from typing import Any, Dict, Iterable, List, Tuple
 
 from .config import (
@@ -28,6 +29,7 @@ RUBRIC_ALIASES = {
     "ПРОИЗВОДСТВО": "ПРОИЗВОДСТВО",
     "ПСС": "ПСС",
     "ПРОИЗВОДСТВЕННАЯ СИСТЕМА": "ПСС",
+    "ПРОИЗВОДСТВЕННАЯ СИСТЕМА СИБУРА": "ПСС",
     "БЕЗОПАСНОСТЬ": "БЕЗОПАСНОСТЬ",
     "ЗАБОТА": "ЗАБОТА О ЛЮДЯХ",
     "ЗАБОТА О ЛЮДЯХ": "ЗАБОТА О ЛЮДЯХ",
@@ -223,6 +225,13 @@ NUMBER_WORDS = {
     "двенадцать", "тринадцать", "четырнадцать", "пятнадцать",
     "двадцать", "тридцать", "сорок", "пятьдесят", "сто", "тысяча",
 }
+NUMBER_EQUIVALENTS = dict(zip(
+    ("один одна одно", "два две", "три", "четыре", "пять", "шесть", "семь",
+     "восемь", "девять", "десять", "одиннадцать", "двенадцать", "тринадцать",
+     "четырнадцать", "пятнадцать", "двадцать", "тридцать", "сорок", "пятьдесят", "сто", "тысяча"),
+    (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 30, 40, 50, 100, 1000),
+))
+WORD_TO_NUMBER = {word: str(number) for words, number in NUMBER_EQUIVALENTS.items() for word in words.split()}
 CONTENT_STOPWORDS = {
     "который", "которая", "которые", "этого", "этой", "своей", "своих",
     "после", "перед", "через", "также", "только", "сейчас", "чтобы",
@@ -261,7 +270,7 @@ def rubric_scores(post: Dict[str, Any]) -> Dict[str, int]:
     scores = {name: 0 for name in CANONICAL_RUBRIC_ORDER}
     for rubric, weighted_phrases in RUBRIC_KEYWORDS.items():
         for phrase, weight in weighted_phrases:
-            if phrase in text:
+            if re.search(r"(?<![а-яa-z])" + re.escape(phrase), text):
                 scores[rubric] += weight
     return scores
 
@@ -287,10 +296,9 @@ def number_word_tokens(value: Any) -> set[str]:
 
 def has_only_source_numbers(generated: Any, post: Dict[str, Any]) -> bool:
     source = source_blob(post)
-    return (
-        number_tokens(generated).issubset(number_tokens(source))
-        and number_word_tokens(generated).issubset(number_word_tokens(source))
-    )
+    source_values = number_tokens(source) | {WORD_TO_NUMBER[w] for w in number_word_tokens(source)}
+    generated_values = number_tokens(generated) | {WORD_TO_NUMBER[w] for w in number_word_tokens(generated)}
+    return generated_values.issubset(source_values)
 
 
 def _looks_trivial_number(value: str, description: str) -> bool:
@@ -395,7 +403,18 @@ def normalize_classification(post: Dict[str, Any], raw: Dict[str, Any] | None) -
     flags: List[str] = []
     inferred, confidence, scores = infer_rubric(post)
     model_rubric = canonicalize_rubric(raw.get("rubric_candidate"))
-    if model_rubric is None:
+    manual_rubric = canonicalize_rubric(post.get("rubric"))
+    evidence = str(raw.get("rubric_evidence") or "").strip()
+    reason = str(raw.get("rubric_reason") or "").strip()
+    supported_choice = bool(reason and len(evidence) >= 12 and _supported_fragment(evidence, post))
+    if manual_rubric:
+        rubric = manual_rubric
+        reason = "Рубрика указана редактором"
+    elif model_rubric and supported_choice:
+        # Смысловая классификация важнее суммы слов: «Фабрика процессов»
+        # может содержать много названий оборудования, оставаясь новостью ПСС.
+        rubric = model_rubric
+    elif model_rubric is None:
         rubric = inferred
         flags.append("Рубрика восстановлена по содержанию")
     elif inferred != model_rubric and confidence >= 6 and confidence >= scores.get(model_rubric, 0) + 3:
@@ -403,6 +422,9 @@ def normalize_classification(post: Dict[str, Any], raw: Dict[str, Any] | None) -
         flags.append(f"Рубрика исправлена: {model_rubric} → {inferred}")
     else:
         rubric = model_rubric
+    if not supported_choice and not manual_rubric:
+        reason = "Предварительная рубрика по ключевым признакам; проверьте смысл поста"
+        evidence = ""
 
     try:
         importance = int(round(float(raw.get("importance", 5))))
@@ -458,6 +480,8 @@ def normalize_classification(post: Dict[str, Any], raw: Dict[str, Any] | None) -
     return {
         "topic": topic[:140],
         "rubric_candidate": rubric,
+        "rubric_reason": reason,
+        "rubric_evidence": evidence if supported_choice else "",
         "importance": importance,
         "people": people,
         "has_number": has_number,
@@ -519,10 +543,19 @@ def _headline_claims_are_supported(title: str, post: Dict[str, Any]) -> bool:
     source_words = set(re.findall(r"[a-zа-я0-9-]+", source_norm))
 
     for candidate_group, source_group in HEADLINE_STATUS_GROUPS:
-        if candidate_words & candidate_group and not source_words & source_group:
-            return False
+        if candidate_words & candidate_group:
+            # Само наличие «прошел» в «не прошел» не подтверждает успех.
+            positive = False
+            for word in source_words & source_group:
+                for match in re.finditer(r"(?<!\w)" + re.escape(word) + r"(?!\w)", source_norm):
+                    prefix = source_norm[max(0, match.start() - 45):match.start()]
+                    if not re.search(r"\b(?:не|пока не)\s+(?:\w+\s+){0,2}$", prefix):
+                        positive = True
+            if not positive:
+                return False
     for term in candidate_words & HEADLINE_EXACT_SUPPORT_TERMS:
-        if term not in source_words:
+        award_equivalents = {"бронза": "третье место", "серебро": "второе место", "золото": "первое место"}
+        if term not in source_words and award_equivalents.get(term, "__absent__") not in source_norm:
             return False
     for phrase in HEADLINE_EXACT_SUPPORT_PHRASES:
         if phrase in candidate_norm and phrase not in source_norm:
@@ -530,16 +563,21 @@ def _headline_claims_are_supported(title: str, post: Dict[str, Any]) -> bool:
     return True
 
 
-def _headline_is_valid(title: str, post: Dict[str, Any], is_main: bool) -> bool:
+def _headline_is_valid(title: str, post: Dict[str, Any], is_main: bool, anchored: bool = False) -> bool:
     words = _headline_words(title)
     max_words = MAIN_HEADLINE_MAX_WORDS if is_main else HEADLINE_MAX_WORDS
     source_title = str(post.get("title") or "")
+    numbers_text = title
+    # В этом узнаваемом обороте числа не являются счетчиком событий.
+    # Исключение узкое и только для образного варианта с дословной опорой.
+    if anchored and not is_main and re.search(r"семь раз \w+[,;]?\s*[–—-]?\s*один раз \w+", _norm(title)):
+        numbers_text = re.sub(r"\b(?:семь|один) раз\b", "раз", title, flags=re.I)
     return bool(
         title
         and HEADLINE_MIN_WORDS <= len(words) <= max_words
-        and len(title) <= 90
-        and has_only_source_numbers(title, post)
-        and has_reasonable_source_overlap(title, post, minimum=0.3)
+        and len(title) <= (150 if is_main else 90)
+        and has_only_source_numbers(numbers_text, post)
+        and (anchored or has_reasonable_source_overlap(title, post, minimum=0.3))
         and _headline_claims_are_supported(title, post)
         and not _headline_is_weak(title)
         and not ("?" in title and "?" not in source_title)
@@ -601,7 +639,51 @@ def construct_headline(
     Возвращает пару ``(title, used_fallback)``. Модель отвечает за редакторскую
     идею, а код – за длину, числа, связь с исходником и антиштампы.
     """
+    options = headline_options(post, context, raw)
+    if options:
+        return options[0]["title"], False
+    return _fallback_title(post, uppercase=not context.get("is_main_block")), True
+
+
+def headline_options(post: Dict[str, Any], context: Dict[str, Any], raw: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Сохраняет проверенные варианты и предпочтение редактора-модели.
+
+    Дословная опора подтверждает происхождение идеи, а не автоматически ее
+    семантическую точность. Числа и статусы проверяются отдельно; редактор
+    видит исходник и может выбрать альтернативу.
+    """
     is_main = bool(context.get("is_main_block"))
+    avoid = {_norm(t) for t in context.get("avoid_titles", []) if isinstance(t, str)}
+    structured = raw.get("headline_options")
+    if isinstance(structured, list):
+        valid_options = []
+        seen = set()
+        for item in structured[:HEADLINE_CANDIDATE_COUNT]:
+            if not isinstance(item, dict):
+                continue
+            title = _clean_headline(item.get("title"))
+            key = _norm(title)
+            anchor = str(item.get("source_anchor") or "").strip()
+            explanation = str(item.get("why_it_fits") or "").strip()
+            anchored = bool(len(anchor) >= 12 and _supported_fragment(anchor, post) and explanation)
+            if key in seen or key in avoid or not anchored:
+                continue
+            if not _headline_is_valid(title, post, is_main, anchored=True):
+                continue
+            seen.add(key)
+            valid_options.append({
+                "title": title[:1].upper() + title[1:] if is_main else title.upper(),
+                "source_anchor": anchor,
+                "why_it_fits": explanation[:400],
+                "technique": str(item.get("technique") or "")[:100],
+            })
+        preferred = _norm(raw.get("title"))
+        valid_options.sort(key=lambda option: _norm(option["title"]) != preferred)
+        if valid_options:
+            return valid_options
+
+    # Совместимость с сохраненными черновиками и старыми API-ответами.
+    # Список без опор проходит прежнюю, более строгую проверку пересечения.
     uppercase = not is_main
     candidate_values: List[Any] = [raw.get("title")]
     raw_candidates = raw.get("title_candidates")
@@ -624,35 +706,55 @@ def construct_headline(
     valid = [
         (title, index)
         for index, title in enumerate(candidates)
-        if _headline_is_valid(title, post, is_main)
+        if _norm(title) not in avoid and _headline_is_valid(title, post, is_main)
     ]
     if valid:
-        title, _ = max(
-            valid,
-            key=lambda item: _headline_score(item[0], post, item[1]),
-        )
-        if uppercase:
-            title = title.upper()
-        else:
-            title = title[:1].upper() + title[1:]
-        return title, False
-
-    return _fallback_title(post, uppercase=uppercase), True
+        valid.sort(key=lambda item: _headline_score(item[0], post, item[1]), reverse=True)
+        return [{"title": title.upper() if uppercase else title[:1].upper() + title[1:]}
+                for title, _ in valid]
+    return []
 
 
-def sanitize_card_text(value: Any, fallback_link: str) -> str:
-    """Оставляет только безопасные ссылки и всегда подставляет URL из Excel."""
+def safe_source_url(value: Any) -> str:
+    url = html.unescape(str(value or "")).strip()
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return ""
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return url
+    if parsed.scheme == "mailto" and parsed.path and "@" in parsed.path:
+        return url
+    return ""
+
+
+def source_links(post: Dict[str, Any]) -> List[str]:
+    links = [str(post.get("link") or "")]
+    links.extend(re.findall(r"(?:https?://|mailto:)[^\s<>\"']+", str(post.get("text") or "")))
+    return list(dict.fromkeys(url for link in links
+                              if (url := safe_source_url(link.rstrip(".,;!?)»]")))))
+
+
+def sanitize_card_text(value: Any, fallback_link: str, allowed_links: Iterable[str] = ()) -> str:
+    """Разрешает ссылки из исходника, отклоняя придуманные адреса и HTML."""
     raw = str(value or "")
     pattern = re.compile(r"<a\b[^>]*>(.*?)</a>", flags=re.IGNORECASE | re.DOTALL)
     parts: List[str] = []
     cursor = 0
-    safe_href = html.escape(str(fallback_link or "#"), quote=True)
+    fallback_link = safe_source_url(fallback_link)
+    allowed = {url for value in allowed_links if (url := safe_source_url(value))}
+    if fallback_link:
+        allowed.add(fallback_link)
     for match in pattern.finditer(raw):
         outside = re.sub(r"<[^>]+>", "", raw[cursor:match.start()])
         parts.append(html.escape(outside, quote=False))
         inner = re.sub(r"<[^>]+>", "", match.group(1))
         inner = html.escape(inner, quote=False)
-        if fallback_link:
+        href_match = re.search(r"href\s*=\s*['\"]([^'\"]*)['\"]", match.group(0), re.I)
+        requested = html.unescape(href_match.group(1)) if href_match else ""
+        target = requested if requested in allowed else fallback_link
+        if target:
+            safe_href = html.escape(target, quote=True)
             parts.append(
                 f'<a href="{safe_href}" style="color:#008C95;text-decoration:underline;">{inner}</a>'
             )
@@ -675,7 +777,7 @@ def validate_rewrite_output(
     if context.get("is_figure"):
         value = str(raw.get("value") or "").strip()
         description = str(raw.get("description") or "").strip()
-        if not value or not has_only_source_numbers(value, post):
+        if not value or _norm(value) != _norm(post.get("number_value")):
             value = str(post.get("number_value") or "").strip()
             flags.append("Главная цифра возвращена к значению из исходника")
         if not description or not has_only_source_numbers(description, post):
@@ -735,7 +837,7 @@ def validate_rewrite_output(
             flags.append("Короткая подводка дополнена фактами из источника")
         else:
             flags.append("Подводка заменена на фактический фрагмент")
-    text = sanitize_card_text(text, str(post.get("link") or ""))
+    text = sanitize_card_text(text, str(post.get("link") or ""), source_links(post))
     return {"title": title, "text": text}, flags
 
 
@@ -752,6 +854,8 @@ def _title_terms(post: Dict[str, Any]) -> set[str]:
 
 def find_announcement_report_duplicates(posts: Iterable[Dict[str, Any]]) -> Dict[int, str]:
     """Исключает анонс, если в том же наборе уже есть отчет о событии."""
+    from .excel_loader import parse_post_date
+    from .timeliness import source_calendar_dates
     items = list(posts)
     announcement_markers = ("приглашаем", "пройдет", "состоится", "регистрац", "анонс")
     report_markers = ("прошел", "прошла", "состоялся", "состоялась", "подвели итоги", "завершился")
@@ -769,8 +873,18 @@ def find_announcement_report_duplicates(posts: Iterable[Dict[str, Any]]) -> Dict
             r_blob = _norm(source_blob(report))
             if not any(marker in r_blob for marker in report_markers):
                 continue
+            a_date = parse_post_date(announcement.get("date"))
+            r_date = parse_post_date(report.get("date"))
+            if a_date and r_date and r_date < a_date:
+                continue  # отчет о прошлом туре не отменяет следующий
+            a_dates = source_calendar_dates(announcement)
+            r_dates = source_calendar_dates(report)
+            if a_dates and r_dates and not a_dates.intersection(r_dates):
+                continue
             r_terms = _title_terms(report)
-            if a_terms & r_terms:
+            common = a_terms & r_terms
+            same_topic = bool(common) and len(common) / len(a_terms | r_terms) >= 0.6
+            if same_topic and (a_dates.intersection(r_dates) or len(common) >= 2):
                 skipped[int(announcement["post_id"])] = (
                     f"Анонс исключен: в выпуске есть отчет по той же теме (пост #{report['post_id']})"
                 )

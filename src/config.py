@@ -20,8 +20,8 @@ PLAN_TEMPERATURE = 0.15
 REWRITE_TEMPERATURE = 0.45
 LLM_MAX_RETRIES = 5             # сколько раз ретраить упавший запрос
 LLM_PARALLEL_WORKERS = 1         # последовательно, чтобы не упираться в лимит TPM
-CLASSIFY_TEXT_LIMIT = 5000
-REWRITE_TEXT_LIMIT = 5000
+CLASSIFY_TEXT_LIMIT = 12000
+REWRITE_TEXT_LIMIT = 16000
 
 # === РЕДАКТОРСКИЕ ОГРАНИЧЕНИЯ ===
 DIGEST_WINDOW_DAYS = 14
@@ -44,13 +44,12 @@ VIDEO_TEXT_MIN_CHARS = 120
 RICH_SOURCE_MIN_CHARS = 220
 
 # === ЗАГОЛОВКИ ===
-# Модель предлагает несколько заголовков с разными редакторскими приемами,
-# после чего код оставляет только фактически подтвержденные варианты и
-# выбирает самый конкретный. Это дает вариативность без кликбейта.
+# Модель выбирает редакторскую идею; код проверяет фактические опоры,
+# сохраняет альтернативы и не ранжирует метафоры по совпадению слов.
 HEADLINE_CANDIDATE_COUNT = 5
 HEADLINE_MIN_WORDS = 2
 HEADLINE_MAX_WORDS = 8
-MAIN_HEADLINE_MAX_WORDS = 10
+MAIN_HEADLINE_MAX_WORDS = 16
 
 # === КАНОНИЧЕСКИЙ ПОРЯДОК РУБРИК ===
 CANONICAL_RUBRIC_ORDER = [
@@ -59,8 +58,8 @@ CANONICAL_RUBRIC_ORDER = [
     "БЕЗОПАСНОСТЬ",
     "ЗАБОТА О ЛЮДЯХ",
     "КАРЬЕРА",
-    "СОБЫТИЯ",
     "ДОСТИЖЕНИЯ",
+    "СОБЫТИЯ",
     "ВЫ ПРОСИЛИ — МЫ СДЕЛАЛИ",
 ]
 

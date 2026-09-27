@@ -10,12 +10,13 @@ import copy
 import logging
 import tempfile
 import zipfile
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
 import streamlit as st
 
-from src.config import BRAND_TEAL, BRAND_DARK, BRAND_MINT
+from src.config import BRAND_TEAL, BRAND_DARK, BRAND_MINT, CANONICAL_RUBRIC_ORDER, RUBRIC_ICONS
 from src.excel_loader import (
     load_posts,
     filter_posts_by_period,
@@ -114,6 +115,8 @@ def _show_source(draft, post_id, key: str, quality_flags=None):
     if not source:
         return
     with st.expander("Сверить с исходником", expanded=False):
+        if source.get("rubric_reason"):
+            st.caption(f"{source.get('rubric_candidate', '')}: {source['rubric_reason']}")
         meta = " · ".join(
             part for part in [
                 str(source.get("date") or "").strip(),
@@ -131,6 +134,37 @@ def _show_source(draft, post_id, key: str, quality_flags=None):
             disabled=True,
             key=f"source_{key}",
         )
+
+
+def _choose_headline(card, selection_key, title_key):
+    selected = st.session_state.get(selection_key)
+    if selected:
+        card["title"] = selected
+        st.session_state[title_key] = selected
+
+
+def _headline_picker(card, key, title_key):
+    options = card.get("headline_options") or []
+    titles = list(dict.fromkeys(opt["title"] for opt in options if opt.get("title")))
+    if not titles:
+        return
+    st.selectbox(
+        "Варианты заголовка", [""] + titles, key=key,
+        format_func=lambda value: value or "Выберите вариант",
+        on_change=_choose_headline, args=(card, key, title_key),
+    )
+    selected = st.session_state.get(key)
+    option = next((opt for opt in options if opt.get("title") == selected), None)
+    if option and option.get("why_it_fits"):
+        st.caption(option["why_it_fits"])
+
+
+def _clear_card_widgets(card_location=None):
+    """После замены/перемещения данные карточек важнее старых значений виджетов."""
+    prefixes = ("c_t_", "c_x_", "c_l_", "c_h_", "c_i_", "headline_", "sort_", "mv_")
+    for key in list(st.session_state):
+        if key.startswith(prefixes) and (card_location is None or key.endswith(f"_{card_location}")):
+            del st.session_state[key]
 
 
 # ── Состояние сессии ──────────────────────────────────────────
@@ -439,7 +473,7 @@ with st.sidebar:
             <h1>Дайджест КОС</h1>
         </div>
     </div>
-    <div class="sidebar-version">v2.4 &middot; Конструктор заголовков</div>
+    <div class="sidebar-version">v2.5 &middot; Редактор дайджеста</div>
     """, unsafe_allow_html=True)
 
     if st.button("← сменить тип дайджеста", key="kos_switch_mode", use_container_width=True):
@@ -477,6 +511,48 @@ with st.sidebar:
         help="Отбирает публикации по дате выпуска. Строки без даты остаются в наборе с предупреждением.",
     )
 
+    source_posts = []
+    source_warnings = []
+    pinned_main_ids = []
+    excluded_post_ids = []
+    if uploaded_xlsx:
+        upload_bytes = uploaded_xlsx.getvalue()
+        fingerprint = hashlib.sha256(upload_bytes).hexdigest()
+        try:
+            if st.session_state.get("source_fingerprint") != fingerprint:
+                parsed_posts, parsed_warnings = load_posts(io.BytesIO(upload_bytes))
+                for post in parsed_posts:
+                    post["post_id"] = post["row_idx"] - 1
+                st.session_state.source_posts = parsed_posts
+                st.session_state.source_warnings = parsed_warnings
+                st.session_state.source_fingerprint = fingerprint
+            source_posts = st.session_state.source_posts
+            source_warnings = st.session_state.source_warnings
+            choices = [dict(post) for post in source_posts]
+            if filter_period:
+                choices, _, _ = filter_posts_by_period(choices, digest_date)
+            labels = {p["post_id"]: f"#{p['post_id']} · {(p.get('title') or p['text'])[:110]}" for p in choices}
+            selection_key = f"{fingerprint[:12]}_{digest_date}_{filter_period}"
+            st.markdown("### Отбор новостей")
+            pinned_main_ids = st.multiselect(
+                "Обязательно в «Главное»", list(labels), max_selections=4,
+                format_func=lambda pid: labels[pid], key=f"pin_{selection_key}",
+                help="Выберите до четырех новостей. Остальные места заполнит редактор.",
+            )
+            excluded_post_ids = st.multiselect(
+                "Не включать в выпуск", [pid for pid in labels if pid not in pinned_main_ids],
+                format_func=lambda pid: labels[pid], key=f"exclude_{selection_key}",
+            )
+        except ExcelValidationError as exc:
+            st.error(str(exc))
+
+    preserve_main_titles = st.checkbox(
+        "Сохранять исходные заголовки главных новостей", value=True,
+        help="Если заголовок есть в Excel, он останется без изменений. Для пустого поля будет создан фактический заголовок.",
+    )
+    max_cards = st.selectbox("Максимум новостей в рубрике", [2, 3, 4, 5, 6], index=1,
+                           help="Материалы остаются в своей теме. Переполнение попадет в список исключенных с причиной.")
+
     with st.expander("Расширенные", expanded=False):
         debug_mode = st.checkbox("Debug-режим", value=False,
                                  help="Показать промежуточный JSON")
@@ -490,7 +566,7 @@ with st.sidebar:
         "Сгенерировать дайджест",
         type="primary",
         use_container_width=True,
-        disabled=not uploaded_xlsx,
+        disabled=not source_posts,
     )
 
 
@@ -523,11 +599,8 @@ if generate_btn:
     with open(tmp_xlsx, "wb") as f:
         f.write(uploaded_xlsx.getbuffer())
 
-    try:
-        posts, excel_warnings = load_posts(tmp_xlsx)
-    except ExcelValidationError as e:
-        st.error(f"Ошибка в Excel-файле:\n\n{e}")
-        st.stop()
+    posts = [dict(post) for post in source_posts]
+    excel_warnings = source_warnings
 
     source_posts_count = len(posts)
     period_excluded = []
@@ -560,7 +633,11 @@ if generate_btn:
 
     progress_widget = st.progress(0, text="Подготовка...")
     try:
-        draft = build_digest_draft(posts, progress=_progress_callback(progress_widget))
+        draft = build_digest_draft(
+            posts, progress=_progress_callback(progress_widget), digest_date=digest_date,
+            pinned_main_ids=pinned_main_ids, excluded_post_ids=excluded_post_ids,
+            max_cards_per_rubric=max_cards, preserve_main_titles=preserve_main_titles,
+        )
         if period_excluded:
             period_rows = [
                 {
@@ -576,6 +653,11 @@ if generate_btn:
         draft.setdefault("_stats", {})["input_posts"] = source_posts_count
         draft["_stats"]["excluded_posts"] = len(draft.get("excluded") or [])
         st.session_state.draft = draft
+        _clear_card_widgets()
+        for key in list(st.session_state):
+            if key.startswith(("main_title_", "main_link_", "main_image_", "source_", "fig_", "v_", "q_")):
+                del st.session_state[key]
+        st.session_state.export_ready = False
         st.session_state.generation_done = True
         progress_widget.progress(1.0, text="Готово!")
         st.toast("Черновик дайджеста готов!", icon="✅")
@@ -667,8 +749,8 @@ stat_cols[5].metric("Карточек", card_count)
 
 if quality_flags:
     st.info(
-        f"Автопроверка исправила потенциально неточные или шаблонные фрагменты: {quality_flags}. "
-        "Исходник доступен в редакторе каждой карточки."
+        f"Автопроверка отметила фрагменты для сверки: {quality_flags}. "
+        "Исходник и замечания доступны в редакторе каждой карточки."
     )
 
 # ── Предупреждения ────────────────────────────────────────────
@@ -698,6 +780,13 @@ if draft.get("excluded"):
             use_container_width=True,
             hide_index=True,
         )
+
+with st.expander("Распределение по темам", expanded=False):
+    st.dataframe([
+        {"Рубрика": rubric["name"], "Новостей": len(rubric.get("cards") or [])}
+        for rubric in draft.get("rubrics", [])
+    ], use_container_width=True, hide_index=True)
+    st.caption("Равномерность ограничивается смыслом: пустые рубрики не заполняются случайными новостями.")
 
 # ── Тема письма ───────────────────────────────────────────────
 st.markdown('<div class="rubric-section"><div class="rubric-section-title">Тема письма</div></div>',
@@ -741,7 +830,9 @@ else:
             </div>""", unsafe_allow_html=True)
             with st.expander("Редактировать", icon="✏️"):
                 _show_source(draft, item.get("post_id"), f"main_{idx}", item.get("quality_flags"))
-                new_title = st.text_area("Заголовок", value=item["title"], key=f"main_title_{idx}")
+                _headline_picker(item, f"headline_main_{idx}", f"main_title_{idx}")
+                st.session_state.setdefault(f"main_title_{idx}", item["title"])
+                new_title = st.text_area("Заголовок", key=f"main_title_{idx}")
                 new_image = _photo_selector("Фото", item.get("image_file", ""), key=f"main_image_{idx}")
                 new_link = st.text_input("Ссылка", value=item.get("link", ""), key=f"main_link_{idx}")
                 if st.button("Сохранить", key=f"save_main_{idx}", use_container_width=True):
@@ -921,6 +1012,7 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                 for i, c in enumerate(new_cards):
                     c["position"] = i + 1
                 rubric["cards"] = new_cards
+                _clear_card_widgets()
                 st.toast("Порядок обновлён", icon="↕️")
                 st.rerun()
 
@@ -951,8 +1043,9 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                 f"card_{r_idx}_{c_idx}",
                 card.get("quality_flags"),
             )
-            new_title = st.text_input("Заголовок (КАПСОМ)", value=card["title"],
-                                       key=f"c_t_{r_idx}_{c_idx}")
+            _headline_picker(card, f"headline_{r_idx}_{c_idx}", f"c_t_{r_idx}_{c_idx}")
+            st.session_state.setdefault(f"c_t_{r_idx}_{c_idx}", card["title"])
+            new_title = st.text_input("Заголовок (КАПСОМ)", key=f"c_t_{r_idx}_{c_idx}")
             new_text = st.text_area("Текст", value=card["text"],
                                      key=f"c_x_{r_idx}_{c_idx}", height=120)
             new_card_link = st.text_input("Ссылка", value=card.get("link", ""),
@@ -977,7 +1070,9 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                              help="AI соберет пять вариантов и выберет лучший, не меняя текст"):
                     try:
                         with st.spinner("Конструирую варианты заголовка..."):
+                            card["text"] = new_text
                             regenerate_card_headline(draft, r_idx, c_idx)
+                        _clear_card_widgets(f"{r_idx}_{c_idx}")
                         st.toast("Заголовок обновлен", icon="🎲")
                         st.rerun()
                     except Exception as e:
@@ -989,6 +1084,7 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     try:
                         with st.spinner("Генерирую новый вариант карточки..."):
                             regenerate_single_card(draft, r_idx, c_idx)
+                        _clear_card_widgets(f"{r_idx}_{c_idx}")
                         st.toast("Карточка перегенерирована", icon="🎲")
                         st.rerun()
                     except Exception as e:
@@ -1004,6 +1100,7 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     cards[c_idx], cards[c_idx - 1] = cards[c_idx - 1], cards[c_idx]
                     for i, c in enumerate(cards):
                         c["position"] = i + 1
+                    _clear_card_widgets()
                     st.rerun()
             with move_cols[1]:
                 if c_idx < len(rubric["cards"]) - 1 and st.button("↓", key=f"dn_{r_idx}_{c_idx}",
@@ -1012,9 +1109,10 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     cards[c_idx], cards[c_idx + 1] = cards[c_idx + 1], cards[c_idx]
                     for i, c in enumerate(cards):
                         c["position"] = i + 1
+                    _clear_card_widgets()
                     st.rerun()
             with move_cols[2]:
-                all_rubric_names = [r["name"] for r in draft.get("rubrics", [])]
+                all_rubric_names = CANONICAL_RUBRIC_ORDER
                 target = st.selectbox(
                     "Перенести в рубрику",
                     options=all_rubric_names,
@@ -1022,6 +1120,9 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                     key=f"mv_{r_idx}_{c_idx}")
                 if target != rubric["name"]:
                     if st.button("Перенести", key=f"mvb_{r_idx}_{c_idx}", use_container_width=True):
+                        if not any(r["name"] == target for r in draft["rubrics"]):
+                            draft["rubrics"].append({"name": target, "icon": RUBRIC_ICONS[target],
+                                                     "cards": [], "quote_before": None})
                         moved_card = rubric["cards"].pop(c_idx)
                         for i, c in enumerate(rubric["cards"]):
                             c["position"] = i + 1
@@ -1032,7 +1133,13 @@ for r_idx, rubric in enumerate(draft.get("rubrics", [])):
                                     r["cards"] = []
                                 r["cards"].append(moved_card)
                                 break
+                        draft["rubrics"].sort(key=lambda r: CANONICAL_RUBRIC_ORDER.index(r["name"]))
+                        draft["video_after_rubric_idx"] = next(
+                            (i for i, r in enumerate(draft["rubrics"], 1)
+                             if r["name"] == "ПРОИЗВОДСТВО" and r["cards"]), 1,
+                        )
                         st.toast(f"Перенесено в {target}", icon="↗️")
+                        _clear_card_widgets()
                         st.rerun()
 
 

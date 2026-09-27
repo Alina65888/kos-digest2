@@ -151,6 +151,8 @@ def llm_json(
             raw = response.choices[0].message.content
             cleaned = _clean_json(raw)
             result = json.loads(cleaned)
+            if not isinstance(result, dict):
+                raise ValueError("Ответ модели должен быть JSON-объектом")
 
             # Успех — записываем в кэш и возвращаем
             if use_cache:

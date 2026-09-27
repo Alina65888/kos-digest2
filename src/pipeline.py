@@ -10,6 +10,7 @@
 """
 import json
 import logging
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional, Callable
 
@@ -36,7 +37,11 @@ from .editorial_rules import (
     find_announcement_report_duplicates,
     normalize_classification,
     validate_rewrite_output,
+    headline_options,
+    source_links,
 )
+from .excel_loader import parse_post_date
+from .timeliness import assess_timeliness
 
 log = logging.getLogger(__name__)
 
@@ -48,11 +53,14 @@ log = logging.getLogger(__name__)
 def classify_posts(
     posts: List[Dict[str, Any]],
     progress: Optional[Callable] = None,
+    digest_date: date | str | None = None,
 ) -> List[Dict[str, Any]]:
     """
     Прогоняет все посты через LLM батчами по CLASSIFY_BATCH_SIZE.
     Возвращает посты с добавленными полями классификации.
     """
+    if not posts:
+        return []
     system_prompt = load_prompt("classify")
     result: Dict[int, Dict[str, Any]] = {}  # post_id → classification
 
@@ -63,6 +71,7 @@ def classify_posts(
 
     def process_batch(batch_idx: int, batch: List[Dict[str, Any]]):
         payload = {
+            "digest_date": str(digest_date or ""),
             "posts": [
                 {
                     "id": p["post_id"],
@@ -82,13 +91,17 @@ def classify_posts(
                 label=f"classify[{batch_idx}]",
             )
             items = response.get("items", [])
+            if not isinstance(items, list):
+                raise ValueError("Классификация должна содержать список items")
             normalized_items = {}
+            batch_ids = {p["post_id"] for p in batch}
             for item in items:
                 try:
                     item_id = int(item.get("id"))
                 except (TypeError, ValueError, AttributeError):
                     continue
-                normalized_items[item_id] = item
+                if item_id in batch_ids:
+                    normalized_items[item_id] = item
             return normalized_items
         except Exception as e:
             log.error(f"Батч {batch_idx} провалился: {e}")
@@ -145,6 +158,8 @@ def _default_classification(post: Dict[str, Any]) -> Dict[str, Any]:
 def plan_digest(
     classified: List[Dict[str, Any]],
     progress: Optional[Callable] = None,
+    digest_date: date | str | None = None,
+    pinned_main_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Составляет план: что куда положить."""
     if progress:
@@ -162,6 +177,8 @@ def plan_digest(
             "topic": p.get("topic", ""),
             "summary_short": (p.get("summary_short") or "")[:600],
             "rubric_candidate": p.get("rubric_candidate"),
+            "rubric_reason": p.get("rubric_reason", ""),
+            "rubric_evidence": p.get("rubric_evidence", ""),
             "importance": p.get("importance", 5),
             "has_number": p.get("has_number", False),
             "number_value": p.get("number_value"),
@@ -179,7 +196,8 @@ def plan_digest(
 
     plan = llm_json(
         system_prompt,
-        json.dumps({"posts": compact}, ensure_ascii=False),
+        json.dumps({"posts": compact, "digest_date": str(digest_date or ""),
+                    "pinned_main_ids": pinned_main_ids or []}, ensure_ascii=False),
         temperature=PLAN_TEMPERATURE,
         label="plan",
     )
@@ -225,6 +243,7 @@ def rewrite_card(post: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any
     payload = {
         "post": {
             "title": post.get("title", ""),
+            "date": post.get("date", ""),
             "text": (post.get("text") or "")[:REWRITE_TEXT_LIMIT],
             "author": post.get("author", ""),
             "summary_short": post.get("summary_short", ""),
@@ -233,6 +252,7 @@ def rewrite_card(post: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any
             "quote_author_role": post.get("quote_author_role"),
             "number_value": post.get("number_value"),
             "number_desc": post.get("number_desc"),
+            "source_links": source_links(post),
         },
         "context": context,
     }
@@ -243,6 +263,8 @@ def rewrite_card(post: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any
         label="rewrite",
     )
     result, quality_flags = validate_rewrite_output(post, context, raw_result)
+    if not context.get("is_quote") and not context.get("is_figure"):
+        result["headline_options"] = headline_options(post, context, raw_result)
     result["_quality_flags"] = quality_flags
     return result
 
@@ -289,20 +311,65 @@ def _fix_links(text: str, fallback_link: str) -> str:
 def build_digest_draft(
     posts: List[Dict[str, Any]],
     progress: Optional[Callable] = None,
+    *,
+    digest_date: date | str | None = None,
+    pinned_main_ids: Optional[List[int]] = None,
+    excluded_post_ids: Optional[List[int]] = None,
+    max_cards_per_rubric: int = MAX_CARDS_PER_RUBRIC,
+    preserve_main_titles: bool = False,
 ) -> Dict[str, Any]:
     """Полный пайплайн с детерминированной проверкой решений модели."""
     warnings: List[str] = []
 
+    posts = [dict(post) for post in posts]
+    assigned = set()
     for i, post in enumerate(posts, start=1):
-        post["post_id"] = i
+        pid = post.get("post_id", i)
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or pid in assigned:
+            pid = i
+            while pid in assigned:
+                pid += 1
+        post["post_id"] = pid
+        assigned.add(pid)
+    if not posts:
+        raise ValueError("Нет постов для дайджеста")
+    publication = parse_post_date(digest_date)
+    pinned = list(dict.fromkeys(pinned_main_ids or []))
+    if len(pinned) > MAIN_BLOCK_SIZE or any(pid not in assigned for pid in pinned):
+        raise ValueError("Для «Главного» можно выбрать до четырех постов из загруженного списка")
+    editor_excluded = set(excluded_post_ids or [])
+    if editor_excluded.intersection(pinned):
+        raise ValueError("Один пост нельзя одновременно закрепить и исключить")
+    max_cards = max(1, min(10, int(max_cards_per_rubric)))
 
-    classified = classify_posts(posts, progress=progress)
-    plan = plan_digest(classified, progress=progress)
+    # Актуальность проверяется до модели: исключенный анонс не возвращается
+    # через план, главную цифру, резервный отбор или ошибку API.
+    time_checks = {p["post_id"]: assess_timeliness(p, publication) for p in posts}
+    pre_excluded = {
+        pid: check["reason"] for pid, check in time_checks.items()
+        if check["status"] == "expired"
+    }
+    pre_excluded.update({pid: "Исключено редактором" for pid in editor_excluded if pid in assigned})
+    for pid in pinned:
+        if pid in pre_excluded:
+            warnings.append(f"Закрепленный пост #{pid} исключен: {pre_excluded[pid]}")
+    pinned = [pid for pid in pinned if pid not in pre_excluded]
+
+    active = [p for p in posts if p["post_id"] not in pre_excluded]
+    classified = classify_posts(active, progress=progress, digest_date=publication) if active else []
+    for post in classified:
+        post["timeliness"] = time_checks[post["post_id"]]
+        if post["timeliness"]["status"] == "review":
+            warnings.append(f"Пост #{post['post_id']}: {post['timeliness']['reason']}")
+    plan = plan_digest(classified, progress=progress, digest_date=publication, pinned_main_ids=pinned) if classified else {}
+    classified.extend({**normalize_classification(p, None), **p, "timeliness": time_checks[p["post_id"]]}
+                      for p in posts if p["post_id"] in pre_excluded)
     by_id = {p["post_id"]: p for p in classified}
     all_post_ids = set(by_id)
 
     # Анонс не возвращается в выпуск, если в наборе уже есть отчет о событии.
     excluded_reasons: Dict[int, str] = find_announcement_report_duplicates(classified)
+    excluded_reasons.update(pre_excluded)
 
     # Решение модели «пропустить» учитываем, только если этот пост не был
     # одновременно выбран ею в конкретный блок.
@@ -317,10 +384,10 @@ def build_digest_draft(
         referenced_by_plan.update(pid for pid in (rubric.get("post_ids") or []) if pid in by_id)
     for item in plan.get("skipped", []) or []:
         pid = item.get("post_id")
-        if pid in by_id and pid not in referenced_by_plan:
+        if pid in by_id and pid not in referenced_by_plan and pid not in pinned:
             excluded_reasons.setdefault(pid, str(item.get("reason") or "Не вошел в редакторский отбор"))
 
-    used_ids: set[int] = set()
+    used_ids: set[int] = set(pinned)
 
     def choose_feature(requested_id, predicate) -> Optional[int]:
         if (
@@ -356,7 +423,7 @@ def build_digest_draft(
         for item in (plan.get("main_block", []) or [])
         if item.get("post_id") in by_id
     }
-    main_order = list(plan_main_titles)
+    main_order = pinned + [pid for pid in plan_main_titles if pid not in pinned]
     ranked = sorted(
         classified,
         key=lambda p: (p.get("importance", 0), bool(p.get("is_special")), p.get("date", "")),
@@ -371,19 +438,22 @@ def build_digest_draft(
         post = by_id.get(pid)
         if (
             not post
-            or pid in used_ids
+            or (pid in used_ids and pid not in pinned)
             or pid in excluded_reasons
-            or post.get("importance", 0) < MIN_MAIN_IMPORTANCE
-            or canonicalize_rubric(post.get("rubric_candidate"))
-            in MAIN_BLOCK_RESERVED_RUBRICS
+            or (pid not in pinned and post.get("importance", 0) < MIN_MAIN_IMPORTANCE)
+            or (pid not in pinned and canonicalize_rubric(post.get("rubric_candidate"))
+                in MAIN_BLOCK_RESERVED_RUBRICS)
         ):
             continue
-        main_context = {"is_main_block": True}
+        main_context = {"is_main_block": True, "digest_date": str(publication or "")}
         try:
             # Заголовок из плана нужен для отбора, но не должен попадать в
             # готовый дайджест без редакторской обработки: именно здесь чаще
             # всего появлялись длинные протокольные формулировки.
-            checked = rewrite_card(post, main_context)
+            if preserve_main_titles and post.get("title"):
+                checked = {"title": post["title"], "_quality_flags": []}
+            else:
+                checked = rewrite_card(post, main_context)
             title_flags = checked.get("_quality_flags", [])
         except Exception as exc:
             warnings.append(
@@ -403,6 +473,7 @@ def build_digest_draft(
             "image_file": post.get("image_file", ""),
             "link": post.get("link", ""),
             "quality_flags": title_flags,
+            "headline_options": checked.get("headline_options", []),
         })
         used_ids.add(pid)
 
@@ -416,7 +487,7 @@ def build_digest_draft(
     if fig_id:
         post = by_id[fig_id]
         try:
-            rewritten = rewrite_card(post, {"is_figure": True})
+            rewritten = rewrite_card(post, {"is_figure": True, "digest_date": str(publication or "")})
         except Exception as exc:
             warnings.append(f"Главная цифра, пост #{fig_id}: {exc}")
             rewritten, fallback_flags = validate_rewrite_output(post, {"is_figure": True}, {})
@@ -435,7 +506,7 @@ def build_digest_draft(
     if vid_id:
         post = by_id[vid_id]
         try:
-            rewritten = rewrite_card(post, {"is_video": True})
+            rewritten = rewrite_card(post, {"is_video": True, "digest_date": str(publication or "")})
         except Exception as exc:
             warnings.append(f"Главное видео, пост #{vid_id}: {exc}")
             rewritten, fallback_flags = validate_rewrite_output(post, {"is_video": True}, {})
@@ -447,6 +518,7 @@ def build_digest_draft(
             "link": post.get("link", ""),
             "post_id": vid_id,
             "quality_flags": rewritten.get("_quality_flags", []),
+            "headline_options": rewritten.get("headline_options", []),
         }
 
     # === ЦИТАТА – дословно из исходника ===
@@ -500,12 +572,12 @@ def build_digest_draft(
                 str(p.get("date", "")),
             )
         )
-        selected = rubric_posts[:MAX_CARDS_PER_RUBRIC]
+        selected = rubric_posts[:max_cards]
         selected_by_rubric[rubric_name] = selected
-        for overflow in rubric_posts[MAX_CARDS_PER_RUBRIC:]:
+        for overflow in rubric_posts[max_cards:]:
             excluded_reasons.setdefault(
                 overflow["post_id"],
-                f"В рубрике уже выбраны {MAX_CARDS_PER_RUBRIC} более значимые новости",
+                f"В рубрике уже выбраны {max_cards} более значимые новости",
             )
 
     rubrics_skeleton: List[Dict[str, Any]] = []
@@ -536,6 +608,7 @@ def build_digest_draft(
         context = {
             "rubric": task["rubric_name"],
             "position_in_rubric": task["position"],
+            "digest_date": str(publication or ""),
         }
         try:
             rewritten = rewrite_card(post, context)
@@ -571,6 +644,7 @@ def build_digest_draft(
                     "position": position,
                     "link": post.get("link", ""),
                     "quality_flags": rewritten.get("_quality_flags", []),
+                    "headline_options": rewritten.get("headline_options", []),
                 }
                 used_ids.add(pid)
 
@@ -594,6 +668,22 @@ def build_digest_draft(
                 (idx for idx, rubric in enumerate(rubrics_skeleton, start=1) if rubric.get("cards")),
                 1,
             )
+
+    # Независимые генерации могут предложить один и тот же каламбур.
+    # Выбираем следующую уже проверенную альтернативу без нового API-вызова.
+    seen_titles = {str(item["title"]).casefold() for item in main_block}
+    if main_video:
+        seen_titles.add(str(main_video["title"]).casefold())
+    for rubric in rubrics_skeleton:
+        for card in rubric.get("cards") or []:
+            if str(card["title"]).casefold() in seen_titles:
+                alternative = next((opt for opt in card.get("headline_options", [])
+                                    if str(opt["title"]).casefold() not in seen_titles), None)
+                if alternative:
+                    card["title"] = alternative["title"]
+                else:
+                    card.setdefault("quality_flags", []).append("Заголовок повторяется в выпуске; выберите другой")
+            seen_titles.add(str(card["title"]).casefold())
 
     final_used = {item["post_id"] for item in main_block}
     for block in (main_figure, main_video, main_quote):
@@ -643,6 +733,7 @@ def build_digest_draft(
     )
 
     return {
+        "digest_date": str(publication or ""),
         "subject_topics": subject_topics,
         "main_block": main_block,
         "main_figure": main_figure,
@@ -701,11 +792,14 @@ def regenerate_single_card(
         "rubric": rubric["name"],
         "position_in_rubric": card["position"],
         "_seed": int(time.time()),  # ломаем кэш
+        "digest_date": draft.get("digest_date", ""),
+        "avoid_titles": [card["title"]],
     }
     rewritten = rewrite_card(post, context)
     card["title"] = rewritten.get("title", card["title"])
     card["text"] = rewritten.get("text", card["text"])
     card["quality_flags"] = rewritten.get("_quality_flags", [])
+    card["headline_options"] = rewritten.get("headline_options", [])
     return card
 
 
@@ -730,9 +824,13 @@ def regenerate_card_headline(
         "rubric": rubric["name"],
         "position_in_rubric": card["position"],
         "title_only": True,
+        "digest_date": draft.get("digest_date", ""),
+        "approved_lead": card.get("text", ""),
+        "avoid_titles": [card["title"]] + [opt["title"] for opt in card.get("headline_options", [])],
         "_seed": time.time_ns(),
     }
     rewritten = rewrite_card(post, context)
     card["title"] = rewritten.get("title", card["title"])
     card["quality_flags"] = rewritten.get("_quality_flags", [])
+    card["headline_options"] = rewritten.get("headline_options", [])
     return card
