@@ -3,10 +3,39 @@
 Если что-то не так — выдаём ПОНЯТНУЮ человеческую ошибку, а не stacktrace.
 """
 import pandas as pd
+import re
 from pathlib import Path
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Tuple
 from .config import REQUIRED_COLUMNS, ALL_KNOWN_COLUMNS, DIGEST_WINDOW_DAYS
+
+
+def parse_post_date(value: Any) -> date | None:
+    """Даты экспорта: Excel serial, Timestamp, ISO и российский ДД.ММ.ГГГГ."""
+    if value is None or str(value).strip() in {"", "NaT", "nan"}:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raw = str(value).strip()
+    if re.fullmatch(r"\d{4,5}(?:\.\d+)?", raw):
+        serial = float(raw)
+        if 20000 <= serial <= 80000:
+            return (datetime(1899, 12, 30) + timedelta(days=serial)).date()
+    try:
+        parsed = pd.to_datetime(raw, errors="coerce", dayfirst=bool(re.match(r"\d{1,2}[./]", raw)))
+        return None if pd.isna(parsed) else parsed.date()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _combine_text(caption: str, original: str) -> str:
+    if not original or original in caption:
+        return caption
+    if not caption or caption in original:
+        return original
+    return f"{caption}\n\n{original}"
 
 
 class ExcelValidationError(Exception):
@@ -19,15 +48,17 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
     Читает Excel, возвращает (posts, warnings).
     Падает с ExcelValidationError, если файл невалидный.
     """
-    xlsx_path = Path(xlsx_path)
-    if not xlsx_path.exists():
+    # BytesIO позволяет разобрать загрузку до генерации и выбрать «Главное».
+    if not hasattr(xlsx_path, "read"):
+        xlsx_path = Path(xlsx_path)
+    if isinstance(xlsx_path, Path) and not xlsx_path.exists():
         raise ExcelValidationError(f"Файл не найден: {xlsx_path}")
 
     try:
         df = pd.read_excel(xlsx_path, engine="openpyxl")
     except Exception as e:
         raise ExcelValidationError(
-            f"Не удалось открыть {xlsx_path.name}: {e}\n\n"
+            f"Не удалось открыть {getattr(xlsx_path, 'name', 'Excel-файл')}: {e}\n\n"
             "Возможные причины:\n"
             "- Файл повреждён или не в формате .xlsx\n"
             "- Файл открыт в Excel (закройте и попробуйте снова)\n"
@@ -48,12 +79,24 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         "дата публикации поста": "date",
         "ссылка на пост": "link",
         "текст поста": "text",
-        "текст оригинального поста": "text",
+        "текст оригинального поста": "original_text",
+        "original_text": "original_text",
+        "репост": "is_repost",
         "имя файла фото": "image_file",
         "автор поста": "author",
         "заголовок поста": "title",
+        "рубрика": "rubric",
     }
     df.columns = [COLUMN_ALIASES.get(c, c) for c in df.columns]
+
+    # Два алиаса одной колонки не должны превращать row.get() в pandas.Series.
+    if df.columns.duplicated().any():
+        df = pd.concat(
+            {col: df.loc[:, df.columns == col].replace("", pd.NA).bfill(axis=1).iloc[:, 0]
+             for col in dict.fromkeys(df.columns)}, axis=1,
+        )
+    if "text" not in df.columns and "original_text" in df.columns:
+        df["text"] = ""
 
     # 3. Все ли обязательные колонки на месте?
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
@@ -91,12 +134,20 @@ def load_posts(xlsx_path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
     # 6. Превращаем в список dict
     posts = []
     for i, row in df.iterrows():
+        caption = str(row.get("text", "")).strip()
+        original = str(row.get("original_text", "")).strip()
+        raw_date = row.get("date", "")
+        parsed_date = parse_post_date(raw_date)
         post = {
             "row_idx": i + 2,  # реальная строка в Excel (с учётом заголовка)
-            "date": str(row.get("date", "")),
+            "date": parsed_date.isoformat() if parsed_date else str(raw_date).strip(),
             "author": str(row.get("author", "")).strip(),
             "title": str(row.get("title", "")).strip(),
-            "text": str(row.get("text", "")).strip(),
+            "text": _combine_text(caption, original),
+            "caption": caption,
+            "original_text": original,
+            "is_repost": str(row.get("is_repost", "")).strip().lower() in {"да", "true", "1"},
+            "rubric": str(row.get("rubric", "")).strip(),
             "link": str(row.get("link", "")).strip(),
             "image_file": str(row.get("image_file", "")).strip(),
         }
@@ -147,13 +198,13 @@ def filter_posts_by_period(
             undated_rows.append(int(post.get("row_idx") or 0))
             continue
 
-        parsed = pd.to_datetime(raw_date, errors="coerce")
-        if pd.isna(parsed):
+        parsed = parse_post_date(raw_date)
+        if parsed is None:
             kept.append(post)
             invalid_rows.append(int(post.get("row_idx") or 0))
             continue
 
-        post_date = parsed.date()
+        post_date = parsed
         post["date"] = post_date.isoformat()
         if start_date <= post_date <= end_date:
             kept.append(post)

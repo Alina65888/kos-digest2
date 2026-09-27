@@ -135,7 +135,7 @@ class PipelineSelectionTests(unittest.TestCase):
         }
         importances = {1: 8, 2: 7, 3: 6, 4: 5, 5: 4, 6: 6, 7: 4, 8: 2}
 
-        def fake_classify(input_posts, progress=None):
+        def fake_classify(input_posts, progress=None, digest_date=None):
             return classified_from(input_posts, rubrics, importances)
 
         plan = {
@@ -185,7 +185,7 @@ class PipelineSelectionTests(unittest.TestCase):
         }
         importances = {1: 8, 2: 8}
 
-        def fake_classify(input_posts, progress=None):
+        def fake_classify(input_posts, progress=None, digest_date=None):
             return classified_from(input_posts, rubrics, importances)
 
         plan = {
@@ -223,7 +223,7 @@ class PipelineSelectionTests(unittest.TestCase):
             for idx in range(1, 10)
         ]
 
-        def fake_classify(input_posts, progress=None):
+        def fake_classify(input_posts, progress=None, digest_date=None):
             return classified_from(input_posts)
 
         plan = {

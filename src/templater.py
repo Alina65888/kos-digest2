@@ -136,7 +136,7 @@ def build_html(
     # 4. Рендер
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=False,
+        autoescape=True,
     )
     template = env.get_template("digest_template.html")
 
